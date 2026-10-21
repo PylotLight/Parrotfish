@@ -9,7 +9,7 @@ export function pcm16ToFloat32(bytes: Uint8Array): Float32Array {
   return out
 }
 
-export function float32ToPcm16(samples: Float32Array): Uint8Array {
+export function float32ToPcm16(samples: Float32Array): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(samples.length * 2)
   const view = new DataView(out.buffer)
   for (let i = 0; i < samples.length; i++) {
@@ -39,7 +39,7 @@ export class Pcm16Stream {
 }
 
 /** 16-bit mono WAV. */
-export function encodeWav(chunk: PcmChunk): Uint8Array {
+export function encodeWav(chunk: PcmChunk): Uint8Array<ArrayBuffer> {
   const data = float32ToPcm16(chunk.samples)
   const out = new Uint8Array(44 + data.byteLength)
   const view = new DataView(out.buffer)

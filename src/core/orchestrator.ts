@@ -344,7 +344,8 @@ export class Orchestrator {
     let timer: ReturnType<typeof setTimeout> | undefined
     const timeout = new Promise<'timeout'>((resolve) => (timer = setTimeout(() => resolve('timeout'), timeoutMs)))
     try {
-      const answer = await Promise.race([this.deps.approve(request, signal).then((ok) => (ok ? 'approved' : 'denied') as const), timeout])
+      const asked: Promise<'approved' | 'denied'> = this.deps.approve(request, signal).then((ok) => (ok ? 'approved' : 'denied'))
+      const answer = await Promise.race([asked, timeout])
       if (signal.aborted) throw Object.assign(new Error('cancelled'), { name: 'AbortError' })
       return answer
     } finally {

@@ -97,7 +97,7 @@ export function isDisabled(profile: Profile, stage: Stage): boolean {
 
 export function createProvider<S extends Stage>(stage: S, profile: Profile): StageProviders[S] {
   const config = profile[stage]
-  const entries = REGISTRY[stage] as Record<string, Entry<StageProviders[S]>>
+  const entries = REGISTRY[stage] as unknown as Record<string, Entry<StageProviders[S]>>
   const entry = entries[config.provider]
   if (!entry) throw new Error(`unknown ${stage} provider "${config.provider}" (have: ${Object.keys(entries).join(', ')})`)
   return entry.factory(config.options)
