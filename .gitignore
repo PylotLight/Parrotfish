@@ -1,0 +1,31 @@
+# dependencies
+node_modules
+
+# build output
+dist
+out
+build
+release
+*.tgz
+
+# coverage
+coverage
+*.lcov
+
+# logs
+logs
+*.log
+
+# env
+.env
+.env.*
+!.env.example
+
+# caches
+.cache
+.eslintcache
+*.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db
