@@ -18,6 +18,7 @@ export class SpeechQueue {
   private readonly pending: string[] = []
   private running: Promise<void> | null = null
   private began = false
+  private ended = false
   private failure: Error | null = null
   readonly spoken: string[] = []
 
@@ -40,7 +41,10 @@ export class SpeechQueue {
   /** Resolves when every queued sentence has been synthesized (playback may still be going). */
   async drain(): Promise<void> {
     while (this.running) await this.running
-    if (this.began) this.sink.end(this.turnId)
+    if (this.began && !this.ended) {
+      this.ended = true
+      this.sink.end(this.turnId)
+    }
     if (this.failure) throw this.failure
   }
 

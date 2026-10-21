@@ -218,11 +218,11 @@ export class Orchestrator {
       if (action === 'ignore') return this.finish(turn, clock, 'done')
       if (action === 'device_action') {
         const handled = await this.deviceAction(turn, profile, transcript, ctx, speak, () => mark('toolCall'))
-        if (!handled) await this.brain(profile, transcript, ctx, speak, mark, input.isolated ? [] : this.history)
+        if (!handled) await this.brain(id, profile, transcript, ctx, speak, mark, input.isolated ? [] : this.history)
       } else if (action === 'escalate') {
         await this.escalate(turn, profile, transcript, ctx, speak)
       } else {
-        await this.brain(profile, transcript, ctx, speak, mark, input.isolated ? [] : this.history, action === 'clarify')
+        await this.brain(id, profile, transcript, ctx, speak, mark, input.isolated ? [] : this.history, action === 'clarify')
       }
       await queue.drain()
       return this.finish(turn, clock, 'done')
@@ -244,8 +244,7 @@ export class Orchestrator {
     turn.record.status = status
     turn.record.timings = clock.snapshot()
     if (status === 'cancelled') turn.controller.abort()
-    const isolated = turn.record.source === 'bench'
-    if (!isolated) {
+    if (turn.record.source !== 'bench') {
       this.history.unshift(turn.record)
       this.history.length = Math.min(this.history.length, 100)
     }
@@ -258,6 +257,7 @@ export class Orchestrator {
   }
 
   private async brain(
+    id: string,
     profile: Profile,
     transcript: string,
     ctx: ProviderContext,
@@ -280,13 +280,13 @@ export class Orchestrator {
     const out = (sentences: string[]): void => {
       for (const sentence of sentences) {
         mark('firstSentence')
-        this.deps.emit({ type: 'sentence', id: this.active?.id ?? '', text: sentence, index: index++ })
+        this.deps.emit({ type: 'sentence', id, text: sentence, index: index++ })
         speak(sentence)
       }
     }
     for await (const token of brain.stream(messages, ctx)) {
       mark('firstToken')
-      this.deps.emit({ type: 'token', id: this.active?.id ?? '', text: token })
+      this.deps.emit({ type: 'token', id, text: token })
       out(splitter.push(token))
     }
     out(splitter.flush())
