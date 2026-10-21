@@ -47,6 +47,7 @@ export function enabledTools(names: string[]): ToolSpec[] {
 /** Why a run_shell call is refused, or null when it may run. */
 export function shellRefusal(command: unknown, args: unknown, allowlist: string[]): string | null {
   if (typeof command !== 'string' || !command.trim()) return 'no command'
+  if (/[;&|`$<>(){}\\\n*?!~]/.test(command)) return 'command has shell metacharacters'
   const parts = command.trim().split(/\s+/)
   const bin = parts[0] ?? ''
   if (!allowlist.includes(bin)) return `${bin} is not on the allowlist (${allowlist.join(', ')})`

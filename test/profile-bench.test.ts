@@ -19,7 +19,7 @@ describe('profiles', () => {
     expect(profile.router.fallback).toBe('reply_local')
     expect(profile.stt).toEqual({ provider: 'whisper-cpp', options: {} })
     expect(profile.brain).toEqual(defaultProfile().brain)
-    expect(issues.map((i) => i.path)).toEqual(['router.fallback', 'sidecars[0].command'])
+    expect(issues.map((i) => i.path)).toEqual(['router.provider', 'router.fallback', 'sidecars[0].command'])
   })
   test('an unknown provider is a clear error', () => {
     const p = defaultProfile()
