@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 import type { ProviderInfo } from '../../../core/registry'
 import type { PhononProgress } from '../../../shared/api'
 import type { CatalogVoice } from '../../../shared/phonon-voices'
-import { DEFAULT_LOCAL_STT_MODEL, LOCAL_STT_MODELS } from '../../../shared/local-stt-models'
 import { DEMO_TOOLS, STAGES, type Profile, type ProfileIssue, type SidecarConfig, type Stage } from '../../../shared/profile'
 import { ROUTER_CHOICES, type RouterChoice } from '../../../shared/types'
+import { LocalSttOptions } from './LocalSttOptions'
 
 const api = window.parrotfish
 
@@ -55,14 +55,7 @@ function StageEditor({ stage, profile, providers, onChange, voices }: { stage: S
       </div>
       <div className="stage-options">
         {stage === 'stt' && config.provider === 'parakeet-local' && (
-          <label className="field wide">
-            <span>STT model</span>
-            <select value={String(config.options.model ?? DEFAULT_LOCAL_STT_MODEL)} onChange={(e) => set({ options: { ...config.options, model: e.target.value } })}>
-              {LOCAL_STT_MODELS.map((model) => <option key={model.id} value={model.id}>{model.label}{model.available ? ' (download + prepare)' : ' (unavailable — runtime incompatible)'}</option>)}
-              {!LOCAL_STT_MODELS.some(model => model.id === (config.options.model ?? DEFAULT_LOCAL_STT_MODEL)) && <option value={String(config.options.model)}>{String(config.options.model)} (unknown — blocked)</option>}
-            </select>
-            {LOCAL_STT_MODELS.find(model => model.id === config.options.model)?.blocker && <span className="error small">{LOCAL_STT_MODELS.find(model => model.id === config.options.model)?.blocker}</span>}
-          </label>
+          <LocalSttOptions options={config.options} onChange={options => set({ options })} />
         )}
         {stage === 'tts' && config.provider === 'phonon-wasm' && (
           <label className="field inline">
@@ -78,7 +71,7 @@ function StageEditor({ stage, profile, providers, onChange, voices }: { stage: S
           </label>
         )}
         {keys
-          .filter((k) => !(stage === 'stt' && config.provider === 'parakeet-local' && k === 'model'))
+          .filter((k) => !(stage === 'stt' && config.provider === 'parakeet-local' && (k === 'model' || k === 'backend')))
           .filter((k) => !(stage === 'tts' && config.provider === 'phonon-wasm' && k === 'voice'))
           .map((k) => (
             <OptionField key={k} name={k} value={config.options[k]} fallback={info?.options[k]} onChange={(v) => set({ options: { ...config.options, [k]: v } })} />

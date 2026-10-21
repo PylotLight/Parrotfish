@@ -9,6 +9,7 @@ const { ParakeetEngine } = await import('../src/main/parakeet/engine-host')
 
 type Internals = {
   activeModel: string | null
+  activeBackend: 'wasm' | 'webgpu'
   warmReady: boolean
   warmWaiter: { id: number; reject(error: Error): void } | null
   pending: Map<number, { reject(error: Error): void }>
@@ -52,4 +53,22 @@ test('crash/timeout resets invalidate model status; intentional switches do not 
   statuses.length = 0
   state.reset(new Error('intentional switch'), false)
   expect(statuses).toEqual([])
+})
+
+
+test('unsolicited GPU asset requests are rejected while WASM is active', () => {
+  const { state, statuses } = fixture()
+  const engine = state as unknown as { onEvent(event: SttEvent): void }
+  engine.onEvent({ type: 'gpu-assets', id: 99 })
+  expect(statuses).toEqual([])
+})
+
+test('worker lifecycle status carries the currently requested backend across backend switches', () => {
+  const { state, statuses } = fixture()
+  state.activeBackend = 'wasm'
+  state.onEvent({ type: 'status', modelId: DEFAULT_LOCAL_STT_MODEL, state: 'ready', backend: 'WASM', detail: 'ready' })
+  expect(statuses.at(-1)?.requestedBackend).toBe('wasm')
+  state.activeBackend = 'webgpu'
+  state.onEvent({ type: 'status', modelId: DEFAULT_LOCAL_STT_MODEL, state: 'ready', backend: 'WebGPU', detail: 'ready' })
+  expect(statuses.at(-1)).toMatchObject({ requestedBackend: 'webgpu', backend: 'WebGPU' })
 })

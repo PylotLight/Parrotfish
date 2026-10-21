@@ -46,7 +46,7 @@ export const REGISTRY = {
     energy: { factory: energyVad, label: 'Energy (RMS) fallback', options: { floor: 0.004, ceiling: 0.04 } }
   } satisfies Record<string, Entry<VadProvider>>,
   stt: {
-    'parakeet-local': { factory: parakeetLocal, label: 'Parakeet (local worker, model selection)', options: { model: DEFAULT_LOCAL_STT_MODEL } },
+    'parakeet-local': { factory: parakeetLocal, label: 'Parakeet (local worker, model selection)', options: { model: DEFAULT_LOCAL_STT_MODEL, backend: 'wasm' } },
     parakeet: { factory: parakeetStt, label: 'Parakeet TDT v2 (parakeet-api mlx, :8816)', options: { baseUrl: 'http://127.0.0.1:8816/v1', model: 'mlx-community/parakeet-tdt-0.6b-v2', language: '' } },
     'whisper-cpp': { factory: whisperCppStt, label: 'whisper.cpp server (/inference)', options: { baseUrl: 'http://127.0.0.1:8090', language: '' } },
     'openai-transcriptions': { factory: openaiTranscriptions, label: 'OpenAI-compatible /v1/audio/transcriptions', options: { baseUrl: 'http://127.0.0.1:8000/v1', model: 'whisper-1', apiKey: '', language: '' } },

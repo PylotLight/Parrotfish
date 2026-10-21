@@ -127,7 +127,7 @@ export default function App() {
       {mic.error && <div className="banner warn">{mic.error}</div>}
       <main className="content">
         {tab === 'live' && <>
-          {profile?.stt.provider === 'parakeet-local' && <LocalModels />}
+          {profile?.stt.provider === 'parakeet-local' && <LocalModels key={profile.name} profile={profile} onProfileSaved={refreshProfiles} disabled={mic.on || micStarting || state !== 'idle'} />}
           <LiveView turns={turns} profile={profile} onProfileSaved={refreshProfiles} />
         </>}
         {tab === 'bench' && <BenchView names={names} active={active} />}

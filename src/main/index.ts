@@ -72,17 +72,18 @@ app.whenReady().then(() => {
   const userData = app.getPath('userData')
   const store = new ProfileStore(userData)
   const localStatus = new Map<LocalInferenceStatus['stage'], LocalInferenceStatus>([
-    ['stt', localSttStatus(store.active.stt.options.model)],
+    ['stt', localSttStatus(store.active.stt.options.model, store.active.stt.options.backend === 'webgpu' ? 'webgpu' : 'wasm')],
     ['tts', { stage: 'tts', state: 'idle', label: 'Phonon 31m', backend: 'CPU / WASM', detail: 'Validated CPU path; downloaded assets are cached locally.' }]
   ])
   const sttStatuses = new Map<string, LocalInferenceStatus>()
+  const selectedBackend = (): 'wasm' | 'webgpu' => store.active.stt.options.backend === 'webgpu' ? 'webgpu' : 'wasm'
   const publishLocal = (status: LocalInferenceStatus): void => {
     localStatus.set(status.stage, status)
     send('local:status', status)
   }
   const refreshSttStatus = (): void => {
-    const selected = localSttStatus(store.active.stt.options.model)
-    publishLocal(localSttStatus(store.active.stt.options.model, selected.modelId ? sttStatuses.get(selected.modelId) : undefined))
+    const selected = localSttStatus(store.active.stt.options.model, selectedBackend())
+    publishLocal(localSttStatus(store.active.stt.options.model, selectedBackend(), selected.modelId ? sttStatuses.get(selected.modelId) : undefined))
   }
   const updateLocal = (status: LocalInferenceStatus): void => {
     if (status.stage === 'stt') {
@@ -111,19 +112,21 @@ app.whenReady().then(() => {
       refreshSttStatus()
       return Promise.resolve({ ok: false, error: error instanceof Error ? error.message : String(error) })
     }
-    if (warming) return warmingModel === selected.id ? warming : warming.then(() => warmLocal())
-    warmingModel = selected.id
+    const backend = store.active.stt.options.backend === 'webgpu' ? 'webgpu' : 'wasm'
+    const warmKey = `${selected.id}:${backend}`
+    if (warming) return warmingModel === warmKey ? warming : warming.then(() => warmLocal())
+    warmingModel = warmKey
     updateLocal({ stage: 'tts', state: 'loading', label: 'Phonon 31m', backend: 'CPU / WASM', detail: 'Checking local assets and starting inference worker…' })
-    warming = Promise.allSettled([parakeet.warm(selected.id), phonon.warm()]).then((results) => {
+    warming = Promise.allSettled([parakeet.warm(selected.id, backend), phonon.warm()]).then((results) => {
       const errors = results.flatMap((result, index) => {
         if (result.status === 'fulfilled') return []
         const message = result.reason instanceof Error ? result.reason.message : String(result.reason)
         const stage = index === 0 ? 'stt' : 'tts'
-        updateLocal({ stage, state: 'error', ...(stage === 'stt' ? { modelId: selected.id } : {}), label: index === 0 ? selected.label : 'Phonon 31m', detail: `${message} Retry Prepare models; check network, free disk space and Logs.` })
+        updateLocal({ stage, state: 'error', ...(stage === 'stt' ? { modelId: selected.id, requestedBackend: backend } : {}), label: index === 0 ? selected.label : 'Phonon 31m', detail: `${message} Retry Prepare models; check network, free disk space and Logs.` })
         return [message]
       })
-      if (localSttStatus(store.active.stt.options.model).modelId !== selected.id) {
-        return { ok: false, error: 'The selected STT model changed during preparation. Prepare the selected model again.' }
+      if (localSttStatus(store.active.stt.options.model, selectedBackend()).modelId !== selected.id || selectedBackend() !== backend) {
+        return { ok: false, error: 'The selected STT model or backend changed during preparation. Prepare the selected model again.' }
       }
       return errors.length ? { ok: false, error: errors.join('; ') } : { ok: true }
     }).finally(() => { warming = null })

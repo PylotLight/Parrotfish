@@ -3,7 +3,7 @@ import { dirname, extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { abortError, throwIfAborted } from '../../core/providers/types'
 import type { LocalInferenceStatus } from '../../shared/local-inference'
-import { STT_ORIGIN, STT_PAGE, STT_PARTITION, STT_SCHEME, type SttCommand, type SttEvent } from '../../shared/stt-engine'
+import { STT_ORIGIN, STT_PAGE, STT_PARTITION, STT_SCHEME, type SttBackend, type SttCommand, type SttEvent } from '../../shared/stt-engine'
 import { PARAKEET_GPU_ASSETS, PARAKEET_MANIFESTS } from './assets'
 import { ParakeetDownloads } from './downloads'
 import { requireLocalSttModel } from '../../shared/local-stt-models'
@@ -40,14 +40,16 @@ export class ParakeetEngine {
   private readonly downloads: ParakeetDownloads
   private readonly gpuDownloads: ParakeetDownloads
   private activeModel: string | null = null
+  private activeBackend: SttBackend = 'wasm'
   private readonly modelDownloads = new Map<string, ParakeetDownloads>()
 
   constructor(private readonly options: ParakeetOptions) {
-    this.downloads = new ParakeetDownloads(join(options.userData, 'models', 'parakeet-tdt-0.6b-v2'), options.onStatus, (input, init) => net.fetch(input, init))
-    this.gpuDownloads = new ParakeetDownloads(this.downloads.root, options.onStatus, (input, init) => net.fetch(input, init), PARAKEET_GPU_ASSETS)
+		const report = (status: LocalInferenceStatus): void => options.onStatus({ ...status, requestedBackend: this.activeBackend })
+		this.downloads = new ParakeetDownloads(join(options.userData, 'models', 'parakeet-tdt-0.6b-v2'), report, (input, init) => net.fetch(input, init))
+		this.gpuDownloads = new ParakeetDownloads(this.downloads.root, report, (input, init) => net.fetch(input, init), PARAKEET_GPU_ASSETS)
     for (const [id, manifest] of Object.entries(PARAKEET_MANIFESTS)) {
       const root = id === 'nvidia/parakeet-tdt-0.6b-v2' ? this.downloads.root : join(options.userData, 'models', manifest.cacheKey)
-      this.modelDownloads.set(id, new ParakeetDownloads(root, options.onStatus, (input, init) => net.fetch(input, init), undefined, manifest))
+			this.modelDownloads.set(id, new ParakeetDownloads(root, report, (input, init) => net.fetch(input, init), undefined, manifest))
     }
   }
 
@@ -125,7 +127,7 @@ export class ParakeetEngine {
     if (this.booting) return this.booting
     this.booting = (async () => {
       await this.downloadsFor(modelId).ensure()
-      this.options.onStatus({ stage: 'stt', state: 'loading', modelId, label: PARAKEET_MANIFESTS[modelId]?.label ?? modelId, detail: 'Starting isolated inference worker…' })
+			this.options.onStatus({ stage: 'stt', state: 'loading', modelId, requestedBackend: this.activeBackend, label: PARAKEET_MANIFESTS[modelId]?.label ?? modelId, detail: 'Starting isolated inference worker…' })
       const win = new BrowserWindow({
         show: false, width: 100, height: 80, skipTaskbar: true,
         webPreferences: { preload: join(mainDir, '../preload/stt-engine.cjs'), session: this.getSession(), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, spellcheck: false }
@@ -155,6 +157,7 @@ export class ParakeetEngine {
   private onEvent(event: SttEvent): void {
     if (event.type === 'ready') { this.markReady?.(); return }
     if (event.type === 'gpu-assets') {
+      if (this.activeBackend !== 'webgpu') { this.options.log('Rejected unsolicited GPU asset request while WASM backend is active.'); return }
       const engine = this.window
       void this.gpuDownloads.ensure().then(
         () => { if (engine === this.window && engine && !engine.isDestroyed()) this.send({ type: 'gpu-assets-ready', id: event.id }) },
@@ -164,7 +167,7 @@ export class ParakeetEngine {
     }
     if (event.type === 'status') {
       if (event.modelId !== this.activeModel) return
-      this.options.onStatus({ stage: 'stt', state: event.state, modelId: event.modelId, label: PARAKEET_MANIFESTS[event.modelId]?.label ?? event.modelId, backend: event.backend, detail: event.detail })
+			this.options.onStatus({ stage: 'stt', state: event.state, modelId: event.modelId, requestedBackend: this.activeBackend, label: PARAKEET_MANIFESTS[event.modelId]?.label ?? event.modelId, backend: event.backend, detail: event.detail })
       return
     }
     if (event.type === 'warmed') {
@@ -194,7 +197,7 @@ export class ParakeetEngine {
     this.window = null
     this.booting = null
     this.warmReady = false
-    if (report && this.activeModel) this.options.onStatus({ stage: 'stt', state: 'error', modelId: this.activeModel, label: PARAKEET_MANIFESTS[this.activeModel]?.label ?? this.activeModel, detail: `${error.message} Retry Prepare models.` })
+		if (report && this.activeModel) this.options.onStatus({ stage: 'stt', state: 'error', modelId: this.activeModel, requestedBackend: this.activeBackend, label: PARAKEET_MANIFESTS[this.activeModel]?.label ?? this.activeModel, detail: `${error.message} Retry Prepare models.` })
     this.warmWaiter?.reject(error)
     this.warmWaiter = null
     for (const pending of this.pending.values()) pending.reject(error)
@@ -202,13 +205,15 @@ export class ParakeetEngine {
     if (win && !win.isDestroyed()) win.destroy()
   }
 
-  warm(modelId?: unknown): Promise<void> {
+  warm(modelId?: unknown, backend: SttBackend = 'wasm'): Promise<void> {
+    backend = backend === 'webgpu' ? 'webgpu' : 'wasm'
     const selected = requireLocalSttModel(modelId)
     const task = async (): Promise<void> => {
-      if (this.activeModel !== selected.id) {
-        if (this.activeModel) this.options.onStatus({ stage: 'stt', state: 'idle', modelId: this.activeModel, label: PARAKEET_MANIFESTS[this.activeModel]?.label ?? this.activeModel, detail: 'Worker context released while switching models.' })
+      if (this.activeModel !== selected.id || this.activeBackend !== backend) {
+        if (this.activeModel) this.options.onStatus({ stage: 'stt', state: 'idle', modelId: this.activeModel, requestedBackend: this.activeBackend, label: PARAKEET_MANIFESTS[this.activeModel]?.label ?? this.activeModel, detail: 'Worker context released while switching models.' })
         this.reset(new Error(`Switching active Parakeet model to ${selected.id}.`), false)
         this.activeModel = selected.id
+        this.activeBackend = backend
       }
       if (this.warmReady) return
       await this.ensureWindow(selected.id)
@@ -220,7 +225,7 @@ export class ParakeetEngine {
           resolve: () => { clearTimeout(timer); this.warmWaiter = null; resolveWarm() },
           reject: (error) => { clearTimeout(timer); this.warmWaiter = null; rejectWarm(error) }
         }
-        this.send({ type: 'warm', id, modelId: selected.id })
+        this.send({ type: 'warm', id, modelId: selected.id, backend })
       })
     }
     const run = this.queue.then(task)
@@ -228,15 +233,17 @@ export class ParakeetEngine {
     return run
   }
 
-  transcribe(audio: { samples: Float32Array; sampleRate: number }, signal: AbortSignal, modelId?: unknown): Promise<{ text: string }> {
+  transcribe(audio: { samples: Float32Array; sampleRate: number }, signal: AbortSignal, modelId?: unknown, backend: SttBackend = 'wasm'): Promise<{ text: string }> {
+    backend = backend === 'webgpu' ? 'webgpu' : 'wasm'
     const selected = requireLocalSttModel(modelId)
     const task = async (): Promise<{ text: string }> => {
       throwIfAborted(signal)
       if (audio.sampleRate !== 16000 || !(audio.samples instanceof Float32Array) || audio.samples.length > 16000 * 30 || !audio.samples.every(Number.isFinite)) throw new Error('Parakeet expects finite mono 16 kHz audio of at most 30 seconds. Use a shorter utterance.')
-      if (this.activeModel !== selected.id) {
-        if (this.activeModel) this.options.onStatus({ stage: 'stt', state: 'idle', modelId: this.activeModel, label: PARAKEET_MANIFESTS[this.activeModel]?.label ?? this.activeModel, detail: 'Worker context released while switching models.' })
+      if (this.activeModel !== selected.id || this.activeBackend !== backend) {
+        if (this.activeModel) this.options.onStatus({ stage: 'stt', state: 'idle', modelId: this.activeModel, requestedBackend: this.activeBackend, label: PARAKEET_MANIFESTS[this.activeModel]?.label ?? this.activeModel, detail: 'Worker context released while switching models.' })
         this.reset(new Error(`Switching active Parakeet model to ${selected.id}.`), false)
         this.activeModel = selected.id
+        this.activeBackend = backend
       }
       if (!this.warmReady) {
         await this.ensureWindow(selected.id)
@@ -244,7 +251,7 @@ export class ParakeetEngine {
           const warmId = ++this.nextId
           const timer = setTimeout(() => this.reset(new Error('Parakeet model loading exceeded 10 minutes. Retry Prepare models.')), 600_000)
           this.warmWaiter = { id: warmId, resolve: () => { clearTimeout(timer); this.warmWaiter = null; resolveWarm() }, reject: error => { clearTimeout(timer); this.warmWaiter = null; rejectWarm(error) } }
-          this.send({ type: 'warm', id: warmId, modelId: selected.id })
+          this.send({ type: 'warm', id: warmId, modelId: selected.id, backend })
         })
       }
       throwIfAborted(signal)
@@ -262,7 +269,7 @@ export class ParakeetEngine {
         this.pending.set(id, { resolve: (value) => finish(undefined, value), reject: (error) => finish(error) })
         signal.addEventListener('abort', cancel, { once: true })
         if (signal.aborted) { cancel(); return }
-        try { this.send({ type: 'transcribe', id, samples: audio.samples, sampleRate: audio.sampleRate, modelId: selected.id }) } catch (error) { finish(error instanceof Error ? error : new Error(String(error))) }
+        try { this.send({ type: 'transcribe', id, samples: audio.samples, sampleRate: audio.sampleRate, modelId: selected.id, backend }) } catch (error) { finish(error instanceof Error ? error : new Error(String(error))) }
       })
     }
     const run = this.queue.then(task)

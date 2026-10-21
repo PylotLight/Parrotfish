@@ -42,6 +42,10 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb xauth libgtk-3-0t64 libnss3 libgbm1 libasound2t64
       - name: Build
         run: bun run build
+      - name: Live and Profiles STT model/backend controls (no model downloads)
+        run: |
+          bun build scripts/ci/check-local-stt-ui.ts --target=node --format=cjs --external electron --outfile=/tmp/parrotfish-stt-ui.cjs
+          timeout 45 xvfb-run -a ./node_modules/electron/dist/electron --no-sandbox /tmp/parrotfish-stt-ui.cjs
       - name: Boot the app and run two typed turns on the Mock profile
         run: |
           out="$(PARROTFISH_SMOKE=1 timeout 90 xvfb-run -a ./node_modules/electron/dist/electron --no-sandbox . 2>&1 || true)"
