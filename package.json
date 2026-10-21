@@ -1,0 +1,76 @@
+{
+  "name": "parrotfish",
+  "version": "0.1.0",
+  "description": "On-device realtime voice agent playground: every pipeline stage swappable and timed (bun + electron)",
+  "license": "MIT",
+  "author": "PylotLight <lochois@gmail.com>",
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "bun scripts/dev.ts",
+    "dev:bare": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron ./out/main/index.js",
+    "preview": "electron-vite preview",
+    "clean": "rm -rf out",
+    "typecheck": "bun check",
+    "lint": "oxlint src scripts",
+    "check:css": "bun scripts/ci/check-css.ts",
+    "dist": "electron-builder",
+    "dist:dir": "electron-builder --dir",
+    "dist:mac": "electron-builder --mac",
+    "dist:ci": "electron-builder --publish never",
+    "postinstall": "install-electron"
+  },
+  "build": {
+    "appId": "com.pylotlight.parrotfish",
+    "productName": "Parrotfish",
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "files": [
+      "out/**/*",
+      "package.json",
+      "!node_modules/onnxruntime-node/bin/napi-v*/linux/**",
+      "!node_modules/onnxruntime-node/bin/napi-v*/win32/**",
+      "!node_modules/onnxruntime-node/bin/napi-v*/darwin/x64/**"
+    ],
+    "asarUnpack": [
+      "node_modules/onnxruntime-node/**"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "target": [
+        { "target": "zip", "arch": ["arm64"] },
+        { "target": "dmg", "arch": ["arm64"] }
+      ],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Parrotfish listens to your voice to test the voice agent pipeline. Audio stays on this Mac unless a stage you configured sends it elsewhere."
+      }
+    }
+  },
+  "devDependencies": {
+    "@electron-toolkit/utils": "^4.0.0",
+    "@types/bun": "latest",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "electron": "45.0.0-beta.6",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^6.0.0",
+    "oxlint": "^1.89.0",
+    "vite": "^8.3.4"
+  },
+  "dependencies": {
+    "onnxruntime-node": "^1.30.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  }
+}

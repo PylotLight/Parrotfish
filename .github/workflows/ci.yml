@@ -1,0 +1,28 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: "Parrotfish · CI · test, typecheck, lint, build, css · ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.pull_request.number) || github.event_name == 'workflow_dispatch' && format('manual · {0}', github.ref_name) || github.ref_name || github.event_name }}"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Install (bun)
+        run: bun install
+      - name: Unit tests (mock providers)
+        run: bun test
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Lint (oxlint)
+        run: bun run lint
+      - name: Build (electron-vite)
+        run: bun run build
+      - name: CSS blur check
+        run: bun run check:css
