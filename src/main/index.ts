@@ -270,6 +270,26 @@ app.whenReady().then(() => {
     phonon.dispose()
   })
   log('app', `Parrotfish ${app.getVersion()} on Electron ${process.versions.electron}, profile "${store.activeProfileName}"`)
+
+  // Smoke test (unpackaged only): `PARROTFISH_SMOKE=1 electron .` boots the window, runs one typed
+  // turn on the Mock profile through the real IPC/audio path, prints the record and quits.
+  if (!app.isPackaged && process.env.PARROTFISH_SMOKE) {
+    win.webContents.once('did-finish-load', async () => {
+      const exit = (code: number, payload: unknown): void => {
+        console.log(`PARROTFISH_SMOKE ${JSON.stringify(payload)}`)
+        app.exit(code)
+      }
+      try {
+        store.setActive('Mock')
+        const hasApi = await win!.webContents.executeJavaScript('typeof window.parrotfish === "object" && !!document.querySelector(".titlebar")')
+        const record = await orchestrator.runTurn({ source: 'text', text: 'what is the uptime' })
+        const second = await orchestrator.runTurn({ source: 'text', text: 'tell me something nice' })
+        exit(hasApi && record.status === 'done' && second.status === 'done' ? 0 : 1, { hasApi, first: { status: record.status, route: record.decision?.action, reply: record.reply, timings: record.timings }, second: { status: second.status, v2v: second.timings.voiceToVoiceMs, marks: second.timings.marks, error: second.error } })
+      } catch (error) {
+        exit(1, { error: error instanceof Error ? error.message : String(error) })
+      }
+    })
+  }
 })
 
 app.on('second-instance', () => {
