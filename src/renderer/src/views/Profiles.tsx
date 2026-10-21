@@ -43,7 +43,7 @@ function StageEditor({ stage, profile, providers, onChange, voices }: { stage: S
     <div className="stage">
       <div className="stage-head">
         <strong>{STAGE_LABELS[stage]}</strong>
-        <select value={config.provider} onChange={(e) => set({ provider: e.target.value, options: { ...(providers.find((p) => p.id === e.target.value)?.options ?? {}) } })}>
+        <select value={config.provider} onChange={(e) => set({ provider: e.target.value, options: { ...providers.find((p) => p.id === e.target.value)?.options } })}>
           {providers.map((p) => (
             <option key={p.id} value={p.id}>
               {p.label}

@@ -106,7 +106,7 @@ export function createHost(options: { userData: string; log: (scope: string, lin
   const modelsDir = join(options.userData, 'models')
   const notesDir = join(options.userData, 'notes')
   return {
-    fetch: (input, init) => fetch(input, init),
+    fetch: ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init)) as typeof fetch,
     spawn: (command, args, opts) => spawnProcess(command, args, opts),
     phonon: options.phonon,
     onnx: onnxHost(modelsDir, (l) => options.log('models', l)),
