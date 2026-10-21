@@ -5,6 +5,7 @@ export const TTS_PAGE = 'tts-engine.html'
 export const TTS_PARTITION = 'parrotfish-tts'
 
 export type EngineCommand =
+  | { type: 'warm'; durationDelta: number; requestId: number }
   | {
       type: 'speak'
       id: number
@@ -19,7 +20,9 @@ export type EngineCommand =
 
 export type EngineEvent =
   | { type: 'ready' }
-  | { type: 'loaded'; loadMs: number; threads: number; device: string; isolated: boolean }
+  | { type: 'loaded'; loadMs: number; threads: number; device: string; isolated: boolean; requestId?: number }
+  | { type: 'warm-error'; message: string; requestId?: number }
+  | { type: 'worker-error'; message: string }
   | { type: 'chunk'; id: number; samples: Float32Array; sampleRate: number }
   | { type: 'done'; id: number; firstAudioMs: number | null }
   | { type: 'error'; id: number; message: string }

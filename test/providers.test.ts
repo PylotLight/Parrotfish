@@ -11,7 +11,7 @@ import { whisperCppStt } from '../src/core/providers/stt/whisper-cpp'
 import { openaiTools, parseToolCalls } from '../src/core/providers/tools/openai-tools'
 import { pttsOpenai } from '../src/core/providers/tts/ptts-openai'
 import type { Host } from '../src/core/providers/types'
-import { shellRefusal } from '../src/core/tools'
+import { enabledTools, runTool } from '../src/core/tools'
 import { fakeHost } from './helpers'
 
 type Call = { url: string; init: RequestInit }
@@ -188,16 +188,10 @@ describe('escalation parsing', () => {
   })
 })
 
-describe('run_shell allowlist', () => {
-  const allow = ['ls', 'uptime', 'df']
-  test('allows plain allowlisted commands', () => {
-    expect(shellRefusal('uptime', undefined, allow)).toBeNull()
-    expect(shellRefusal('ls', ['-la', 'Documents'], allow)).toBeNull()
-  })
-  test('refuses anything else', () => {
-    expect(shellRefusal('rm', ['-rf', '/'], allow)).toContain('not on the allowlist')
-    expect(shellRefusal('ls; rm -rf ~', undefined, allow)).toContain('metacharacters')
-    expect(shellRefusal('ls', ['$(whoami)'], allow)).toContain('metacharacters')
-    expect(shellRefusal('ls', ['~'], allow)).toContain('metacharacters')
+describe('legacy shell requests fail closed', () => {
+  test('saved settings cannot re-enable arbitrary commands', async () => {
+    expect(enabledTools(['run_shell'])).toEqual([])
+    const result = await runTool({ name: 'run_shell', args: { command: 'uptime' } }, { host: fakeHost(), signal: new AbortController().signal, shellAllowlist: ['uptime'] })
+    expect(result.output).toContain('refused: unknown tool')
   })
 })

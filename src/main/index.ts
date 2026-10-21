@@ -1,6 +1,6 @@
 // Parrotfish main process: wires profiles, the orchestrator, mic VAD, sidecars, Phonon and Bench
 // to the renderer over IPC.
-import { BrowserWindow, app, dialog, ipcMain, session, systemPreferences } from 'electron'
+import { BrowserWindow, app, dialog, ipcMain, session, systemPreferences, type IpcMainInvokeEvent, type IpcMainEvent } from 'electron'
 import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
@@ -14,6 +14,9 @@ import type { AudioSink } from '../core/speech-queue'
 import { splitAll } from '../core/splitter'
 import type { BenchRequest, EventMap, LogLine, MicStatus } from '../shared/api'
 import { parseVoiceCatalog, publicVoice, MODEL_VOICE, ENGLISH_VOICE_SHA256, VOICES_REPO } from '../shared/phonon-voices'
+import { localLoopProfile } from '../shared/profile'
+import type { LocalInferenceStatus } from '../shared/local-inference'
+import { ParakeetEngine } from './parakeet/engine-host'
 import type { ApprovalRequest } from '../shared/types'
 import { createHost } from './host'
 import { PhononDownloads } from './phonon/downloads'
@@ -66,9 +69,39 @@ class RendererSink implements AudioSink {
 app.whenReady().then(() => {
   const userData = app.getPath('userData')
   const store = new ProfileStore(userData)
-  const downloads = new PhononDownloads(join(userData, 'phonon'), (p) => send('phonon:progress', p))
-  const phonon = new PhononEngine(downloads, (l) => log('phonon', l))
-  const host = createHost({ userData, log, phonon })
+  const localStatus = new Map<LocalInferenceStatus['stage'], LocalInferenceStatus>([
+    ['stt', { stage: 'stt', state: 'idle', label: 'Parakeet TDT 0.6B v2', detail: 'Prepare models to download and select the fastest available backend.' }],
+    ['tts', { stage: 'tts', state: 'idle', label: 'Phonon 31m', backend: 'CPU / WASM', detail: 'Validated CPU path; downloaded assets are cached locally.' }]
+  ])
+  const updateLocal = (status: LocalInferenceStatus): void => {
+    localStatus.set(status.stage, status)
+    send('local:status', status)
+  }
+  const downloads = new PhononDownloads(join(userData, 'phonon'), (p) => {
+    send('phonon:progress', p)
+    updateLocal({ stage: 'tts', state: p.error ? 'error' : p.done ? 'loading' : 'downloading', label: 'Phonon 31m', backend: 'CPU / WASM', detail: p.error || p.label, received: p.received, total: p.total })
+  })
+  const phonon = new PhononEngine(downloads, (l) => log('phonon', l), (info) => {
+    updateLocal({ stage: 'tts', state: 'ready', label: 'Phonon 31m', backend: 'CPU / WASM', detail: `Loaded in ${info.loadMs} ms · ${info.threads} threads. Validated CPU runtime retained; no unverified GPU substitution.` })
+  }, (message) => updateLocal({ stage: 'tts', state: 'error', label: 'Phonon 31m', backend: 'CPU / WASM', detail: `${message} Try Prepare models again; check Logs if it persists.` }))
+  const parakeet = new ParakeetEngine({ userData, onStatus: updateLocal, log: (line: string) => log('parakeet', line) })
+  const host = createHost({ userData, log, phonon, parakeet })
+  let warming: Promise<{ ok: boolean; error?: string }> | null = null
+  function warmLocal(): Promise<{ ok: boolean; error?: string }> {
+    if (warming) return warming
+    updateLocal({ stage: 'tts', state: 'loading', label: 'Phonon 31m', backend: 'CPU / WASM', detail: 'Checking local assets and starting inference worker…' })
+    warming = Promise.allSettled([parakeet.warm(), phonon.warm()]).then((results) => {
+      const errors = results.flatMap((result, index) => {
+        if (result.status === 'fulfilled') return []
+        const message = result.reason instanceof Error ? result.reason.message : String(result.reason)
+        const stage = index === 0 ? 'stt' : 'tts'
+        updateLocal({ stage, state: 'error', label: index === 0 ? 'Parakeet TDT 0.6B v2' : 'Phonon 31m', detail: `${message} Retry Prepare models; check network, free disk space and Logs.` })
+        return [message]
+      })
+      return errors.length ? { ok: false, error: errors.join('; ') } : { ok: true }
+    }).finally(() => { warming = null })
+    return warming
+  }
   const sink = new RendererSink()
   const approvals = new Map<string, (ok: boolean) => void>()
 
@@ -96,6 +129,7 @@ app.whenReady().then(() => {
   let listener: Listener | null = null
   let mic: MicStatus = { on: false, vad: '' }
   let lastLevel = 0
+  let micEpoch = 0
 
   async function openVad(): Promise<{ vad: VadSession; name: string; error?: string }> {
     const profile = store.active
@@ -111,11 +145,18 @@ app.whenReady().then(() => {
 
   async function startMic(): Promise<MicStatus> {
     stopMic()
+    const epoch = micEpoch
     if (process.platform === 'darwin' && systemPreferences.getMediaAccessStatus('microphone') !== 'granted') {
       const ok = await systemPreferences.askForMediaAccess('microphone')
       if (!ok) return (mic = { on: false, vad: '', error: 'Microphone access was denied (System Settings > Privacy & Security > Microphone).' })
     }
+    if (store.active.stt.provider === 'parakeet-local') {
+      const ready = await warmLocal()
+      if (!ready.ok) return { on: false, vad: '', error: ready.error }
+    }
+    if (epoch !== micEpoch) return mic
     const { vad, name, error } = await openVad()
+    if (epoch !== micEpoch) { vad.release(); return mic }
     const profile = store.active
     listener = new Listener(vad, profile.vad, {
       onSpeechStart: () => {
@@ -136,6 +177,7 @@ app.whenReady().then(() => {
   }
 
   function stopMic(): MicStatus {
+    micEpoch += 1
     listener?.close()
     listener = null
     mic = { on: false, vad: '' }
@@ -144,56 +186,77 @@ app.whenReady().then(() => {
   }
 
   function profileChanged(): void {
+    micEpoch += 1
     sidecars.sync(store.active.sidecars)
     send('profiles:changed', { active: store.activeProfileName })
     if (listener) void startMic()
   }
 
   // ---- mic permission for the app window only (audio, never video)
-  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => {
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
     const types = (details as { mediaTypes?: string[] }).mediaTypes ?? []
-    callback(permission === 'media' && types.every((t) => t === 'audio'))
+    callback(contents === win?.webContents && permission === 'media' && types.every((t) => t === 'audio'))
   })
-  session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === 'media')
+  session.defaultSession.setPermissionCheckHandler((contents, permission) => contents === win?.webContents && permission === 'media')
 
-  // ---- IPC
-  ipcMain.handle('profiles:list', () => ({ names: store.names(), active: store.activeProfileName, builtins: store.builtins }))
-  ipcMain.handle('profiles:get', (_e, name: string) => store.get(name))
-  ipcMain.handle('profiles:save', (_e, raw: unknown, previousName?: string) => {
+  // ---- IPC: only the app's top-level frame can invoke the public app bridge.
+  // Engine workers have separate, capability-limited preload bridges.
+  const trusted = (event: IpcMainInvokeEvent | IpcMainEvent): boolean =>
+    !!win && event.sender === win.webContents && event.senderFrame === win.webContents.mainFrame
+  const handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: any[]) => unknown): void => {
+    ipcMain.handle(channel, (event, ...args: unknown[]) => {
+      if (!trusted(event)) throw new Error('Untrusted IPC sender')
+      return listener(event, ...args)
+    })
+  }
+  const on = (channel: string, listener: (event: IpcMainEvent, ...args: any[]) => void): void => {
+    ipcMain.on(channel, (event, ...args: unknown[]) => {
+      if (trusted(event)) listener(event, ...args)
+    })
+  }
+  handle('profiles:list', () => ({ names: store.names(), active: store.activeProfileName, builtins: store.builtins }))
+  handle('profiles:get', (_e, name: string) => store.get(name))
+  handle('profiles:save', (_e, raw: unknown, previousName?: string) => {
     const result = store.save(raw, previousName)
     if (result.profile.name === store.activeProfileName || previousName === store.activeProfileName) profileChanged()
     return result
   })
-  ipcMain.handle('profiles:remove', (_e, name: string) => {
+  handle('profiles:remove', (_e, name: string) => {
     store.remove(name)
     profileChanged()
   })
-  ipcMain.handle('profiles:setActive', (_e, name: string) => {
+  handle('profiles:setActive', (_e, name: string) => {
     store.setActive(name)
     profileChanged()
   })
-  ipcMain.handle('profiles:providers', () => describeProviders())
+  handle('profiles:providers', () => describeProviders())
 
-  ipcMain.handle('turns:text', (_e, text: string) => orchestrator.runTurn({ source: 'text', text: String(text) }))
-  ipcMain.handle('turns:cancel', () => void orchestrator.cancel())
-  ipcMain.handle('turns:history', () => orchestrator.history)
-  ipcMain.handle('turns:approval', (_e, id: string, ok: boolean) => {
+  handle('turns:text', (_e, text: unknown) => {
+    if (typeof text !== 'string' || text.length > 16_000) throw new Error('Text must be a string under 16,000 characters')
+    return orchestrator.runTurn({ source: 'text', text })
+  })
+  handle('turns:cancel', () => void orchestrator.cancel())
+  handle('turns:history', () => orchestrator.history)
+  handle('turns:approval', (_e, id: string, ok: boolean) => {
     approvals.get(id)?.(!!ok)
     approvals.delete(id)
   })
 
-  ipcMain.handle('mic:start', () => startMic())
-  ipcMain.handle('mic:stop', () => stopMic())
-  ipcMain.on('mic:frames', (_e, samples: Float32Array) => listener?.push(samples instanceof Float32Array ? samples : new Float32Array(samples)))
-  ipcMain.on('audio:started', (_e, turnId: string) => sink.started(turnId))
-  ipcMain.on('audio:idle', () => orchestrator.audioIdle())
+  handle('mic:start', () => startMic())
+  handle('mic:stop', () => stopMic())
+  on('mic:frames', (_e, samples: unknown) => {
+    if (!(samples instanceof Float32Array) || samples.length > 16_000 || !samples.every(Number.isFinite)) return
+    listener?.push(samples)
+  })
+  on('audio:started', (_e, turnId: string) => sink.started(turnId))
+  on('audio:idle', () => orchestrator.audioIdle())
 
   let benchAbort: AbortController | null = null
-  ipcMain.handle('bench:pickWavs', async () => {
+  handle('bench:pickWavs', async () => {
     const r = await dialog.showOpenDialog(win!, { title: 'Bench WAV files', properties: ['openFile', 'multiSelections'], filters: [{ name: 'WAV audio', extensions: ['wav'] }] })
     return r.canceled ? [] : r.filePaths
   })
-  ipcMain.handle('bench:run', async (_e, req: BenchRequest) => {
+  handle('bench:run', async (_e, req: BenchRequest) => {
     benchAbort?.abort()
     benchAbort = new AbortController()
     const cases: BenchCase[] = []
@@ -207,20 +270,23 @@ app.whenReady().then(() => {
     const profiles = req.profiles.map((n) => store.get(n))
     return runBench(orchestrator, cases, profiles, { repeats: req.repeats, signal: benchAbort.signal, onRow: (row, done, total) => send('bench:row', { row, done, total }) })
   })
-  ipcMain.handle('bench:cancel', () => benchAbort?.abort())
-  ipcMain.handle('bench:export', async (_e, report: unknown) => {
+  handle('bench:cancel', () => benchAbort?.abort())
+  handle('bench:export', async (_e, report: unknown) => {
     const r = await dialog.showSaveDialog(win!, { title: 'Export bench results', defaultPath: `parrotfish-bench-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`, filters: [{ name: 'JSON', extensions: ['json'] }] })
     if (r.canceled || !r.filePath) return null
     await writeFile(r.filePath, `${JSON.stringify(report, null, 2)}\n`)
     return r.filePath
   })
 
-  ipcMain.handle('sidecars:list', () => sidecars.list())
-  ipcMain.handle('sidecars:start', (_e, id: string) => sidecars.start(id))
-  ipcMain.handle('sidecars:stop', (_e, id: string) => sidecars.stop(id))
-  ipcMain.handle('sidecars:logs', (_e, id: string) => sidecars.logs(id))
+  handle('sidecars:list', () => sidecars.list())
+  handle('sidecars:start', (_e, id: string) => sidecars.start(id))
+  handle('sidecars:stop', (_e, id: string) => sidecars.stop(id))
+  handle('sidecars:logs', (_e, id: string) => sidecars.logs(id))
 
-  ipcMain.handle('phonon:warm', async () => {
+  handle('local:status', () => [...localStatus.values()])
+  handle('local:warm', () => warmLocal())
+
+  handle('phonon:warm', async () => {
     try {
       await phonon.warm()
       return { ok: true }
@@ -230,7 +296,7 @@ app.whenReady().then(() => {
       return { ok: false, error: message }
     }
   })
-  ipcMain.handle('phonon:voices', async () => {
+  handle('phonon:voices', async () => {
     try {
       const jsonl = await downloads.catalog()
       return [MODEL_VOICE, ...parseVoiceCatalog(jsonl, { base: VOICES_REPO, hashes: ENGLISH_VOICE_SHA256 }).map(publicVoice)]
@@ -239,8 +305,8 @@ app.whenReady().then(() => {
       return [MODEL_VOICE]
     }
   })
-  ipcMain.handle('logs:get', () => logs)
-  ipcMain.handle('speak', async (_e, text: string) => {
+  handle('logs:get', () => logs)
+  handle('speak', async (_e, text: string) => {
     const profile = store.active
     const tts = createProvider('tts', profile)
     const controller = new AbortController()
@@ -268,6 +334,7 @@ app.whenReady().then(() => {
     orchestrator.cancel()
     sidecars.stopAll()
     phonon.dispose()
+    parakeet.dispose()
   })
   log('app', `Parrotfish ${app.getVersion()} on Electron ${process.versions.electron}, profile "${store.activeProfileName}"`)
 
@@ -299,6 +366,22 @@ app.whenReady().then(() => {
           const third = await orchestrator.runTurn({ source: 'text', text: 'say hello', profile: store.get('smoke-phonon'), isolated: true, sink: { begin: (_id, onStart) => onStart(), write: () => undefined, end: () => undefined, stop: () => undefined } })
           console.log(`PARROTFISH_SMOKE_PHONON ${JSON.stringify({ status: third.status, error: third.error, marks: third.timings.marks, load: phonon.lastLoad })}`)
           store.remove('smoke-phonon')
+        }
+        if (process.env.PARROTFISH_SMOKE_LOCAL) {
+          const started = Date.now()
+          const readiness = await warmLocal()
+          if (!readiness.ok) throw new Error(readiness.error)
+          const wavPath = process.env.PARROTFISH_SMOKE_WAV
+          if (!wavPath) throw new Error('Set PARROTFISH_SMOKE_WAV to a short mono speech WAV')
+          const wav = decodeWav(new Uint8Array(await readFile(wavPath)))
+          let samples = 0
+          const local = await orchestrator.runTurn({ source: 'mic', audio: { samples: resample(wav.samples, wav.sampleRate, 16000), sampleRate: 16000 }, profile: localLoopProfile(), isolated: true, sink: { begin: (_id, onStart) => onStart(), write: (chunkId, chunk) => { samples += chunk.samples.length }, end: () => undefined, stop: () => undefined } })
+          await win!.webContents.executeJavaScript('window.parrotfish.profiles.setActive("Local loop")')
+          await new Promise((resolve) => setTimeout(resolve, 250))
+          const localUi = await win!.webContents.executeJavaScript('window.parrotfish.local.status().then(models => ({ hasModelPanel: !!document.querySelector(".local-readiness"), models }))')
+          if (!localUi.hasModelPanel || !localUi.models.every((model: LocalInferenceStatus) => model.state === 'ready')) throw new Error('Local model readiness UI did not become ready')
+          console.log(`PARROTFISH_SMOKE_LOCAL ${JSON.stringify({ localUi, status: local.status, transcript: local.transcript, reply: local.reply, samples, error: local.error, elapsedMs: Date.now() - started, models: [...localStatus.values()] })}`)
+          if (local.status !== 'done' || !local.transcript.trim() || samples === 0) throw new Error('Local loop real-inference smoke failed')
         }
         exit(hasApi && record.status === 'done' && second.status === 'done' ? 0 : 1, { hasApi, silero, first: { status: record.status, route: record.decision?.action, reply: record.reply, timings: record.timings }, second: { status: second.status, v2v: second.timings.voiceToVoiceMs, marks: second.timings.marks, error: second.error } })
       } catch (error) {

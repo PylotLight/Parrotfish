@@ -15,16 +15,16 @@ mic ─▶ VAD ─▶ STT ─▶ router (System One) ─┬─▶ brain ──�
 | stage | providers |
 | --- | --- |
 | mic + VAD | Silero VAD v6 (onnxruntime-node, model downloaded + sha256 pinned), energy (RMS) fallback |
-| STT | Parakeet TDT v2 via `parakeet-api` (mlx, :8816), whisper.cpp `whisper-server`, any `/v1/audio/transcriptions`, sherpa-onnx in-process (optional) |
+| STT | **Parakeet TDT v2 in a local worker** (auto WebGPU/WASM), Parakeet TDT v2 via `parakeet-api` (mlx, :8816), whisper.cpp `whisper-server`, any `/v1/audio/transcriptions`, sherpa-onnx in-process (optional) |
 | router | llama-server `/v1/systemone` decision models (Kev-0.8B etc): `reply_local` / `device_action` / `escalate` / `clarify` / `ignore` with probabilities + confidence threshold, optional end-of-turn and barge-in questions. plus LLM-as-router baseline over any chat endpoint (json_schema constrained), and "none" |
-| tool caller | OpenAI tool calling (LFM2-1.2B-Tool / FunctionGemma via `llama-server --jinja`). demo tools: `get_time`, `open_app`, `run_shell` (read-only allowlist, no shell), `create_note`. `open_app` and `create_note` wait for a click |
-| brain | any OpenAI-compatible streaming chat endpoint |
+| tool caller | OpenAI tool calling (LFM2-1.2B-Tool / FunctionGemma via `llama-server --jinja`). demo tools: `get_time`, allowlisted `open_app`, bounded `create_note`. Model-generated shell execution is refused. `open_app` and `create_note` wait for a click |
+| brain | transcript repeat (Local loop, no LLM), any OpenAI-compatible streaming chat endpoint |
 | escalation | Claude Code (`claude -p --output-format stream-json --verbose`), Codex (`codex exec --json`). tool events become short spoken progress lines |
 | TTS | **Phonon 31m in-process** (phonon-tts 0.4.0 WASM in a hidden cross-origin-isolated window, default), ptts-openai-server, ptts-ws-server, any `/v1/audio/speech`, macOS `say` |
 
 everything else:
 
-- **profiles**: named JSON in the app's data folder. built-ins: `default` (the Mac stack below), `Mock` (no servers at all), `baseline` (whisper.cpp + LLM router + `say`). form editor + raw JSON editor, quick switcher in the title bar
+- **profiles**: named JSON in the app's data folder. built-ins: `Local loop` (no sidecars, real STT/TTS), `default` (the optional server stack below), `Mock` (no servers at all), `baseline` (whisper.cpp + LLM router + `say`). form editor + raw JSON editor, quick switcher in the title bar
 - **sidecar manager**: per-profile start commands (run through your login shell), health checks, logs pane
 - **waterfall** per turn: VAD hangover, STT final, router, tools, first token, first sentence, first audio (when the first sample actually plays), done. voice-to-voice = end of speech to first audio
 - **bench**: run saved WAVs (and/or typed lines) through one or two profiles, median/p90 table with the B−A delta, JSON export. a `.txt` next to a WAV is its transcript (the Mock STT returns it)
@@ -33,18 +33,35 @@ everything else:
 
 Phonon 40m is CC BY-NC, so it's never used or offered. Phonon 31m and the voices are Apache-2.0.
 
-## getting started on the Mac (fish)
+## no-sidecar local speech loop
 
-needs bun, Homebrew, and an M-series Mac. arm64 only.
+Needs Bun and an Apple-silicon Mac; no Python or Homebrew inference servers.
 
 ```fish
-git clone https://github.com/PylotLight/Parrotfish.git
+git clone --branch feat/initial-app https://github.com/PylotLight/Parrotfish.git
 cd Parrotfish
 bun install
 bun run dev
 ```
 
-pick the **Mock** profile in the title bar and type something: the whole pipeline runs with fake stages so you can check the UI with no models. then set up the real stack. each server below matches a sidecar in the `default` profile, so you can also start them from the **Sidecars** tab instead of a terminal.
+Select **Local loop**, open **Live**, and choose **Prepare models**. The app downloads and caches the models, loads inference workers, and shows download progress, readiness, backend choice and retryable errors. Once ready, enable the mic and speak: **mic → energy VAD → Parakeet TDT 0.6B v2 → repeat transcript → Phonon 31m → speakers**. Typed turns skip STT. Use headphones to avoid transcribing the app's own voice.
+
+This is deliberately a speech-in/speech-out playground, **not an LLM conversation or a model-driven device-action demo**. It starts no local servers, requires no Python/Homebrew inference setup, and enables no device actions or escalation. It is the initial profile for new installs; existing profiles and the saved active selection are preserved. The older `default` and `baseline` HTTP/server stacks remain available for comparisons.
+
+- **STT:** pinned ONNX conversion of the English **v2** checkpoint, run with `parakeet.js` / ONNX Runtime Web in a dedicated worker. Preparation downloads about 661 MB for the compact CPU path. When a WebGPU adapter is available, the trial additionally caches about 2.48 GB of FP32 v2 encoder files; it never attempts to run the CPU-only int8 graph as a GPU model. A short local backend trial chooses WebGPU only when it works and measures faster than WASM; otherwise it reports the CPU fallback reason. The small probe is not a guarantee for every utterance/device. GPU failure during transcription falls back to WASM rather than silently switching models.
+- **TTS:** the owner's tested **CPU Phonon 31m** path is retained (phonon-tts 0.4.0, q8, threaded WASM), now off the engine page in its own worker. No unverified GPU TTS or 40m substitution.
+- **Local files:** model downloads are persistent and checked before use; inference engines are isolated from the app's privileged API. Audio is not sent to a hosted STT/TTS service by this profile. First preparation needs network access for the pinned model files; cached runs do not.
+- **Device actions in other profiles:** model output is validated again at the main-process boundary. Only typed clock, allowlisted app-open and bounded note actions exist; app opening and note creation still require approval. Arbitrary model-generated shell commands are not executable, including in legacy saved profiles.
+
+### exact Parakeet version and license
+
+The checkpoint is [NVIDIA Parakeet TDT 0.6B **v2**](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2), an English, 16 kHz mono model. Its published model card currently specifies **CC BY 4.0**, including commercial use with attribution. The [istupakov ONNX conversion](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v2-onnx) is pinned to revision `0bbb45a3365852604aef28b538a8f066f4ccaa85`, with SHA-256 and byte lengths for every model/tokenizer file in `src/main/parakeet/assets.ts`; this is a format/quantization conversion, not a new model trained by Parrotfish. NVIDIA is the original model author; retain attribution and the [CC BY 4.0 license](https://creativecommons.org/licenses/by/4.0/) when redistributing it. The JavaScript runtime [parakeet.js](https://github.com/ysdede/parakeet.js) is MIT and supports explicit model URLs, so its v3 defaults are not used. **v3 is not loaded or substituted.** Check the selected checkpoint's own terms before considering any future upgrade.
+
+## optional server-based stack on the Mac (fish)
+
+needs bun, Homebrew, and an M-series Mac. arm64 only.
+
+For the optional server stacks, pick the **Mock** profile in the title bar and type something: the whole pipeline runs with fake stages so you can check the UI with no models. then set up the real stack. each server below matches a sidecar in the `default` profile, so you can also start them from the **Sidecars** tab instead of a terminal.
 
 ```fish
 # STT: Parakeet TDT 0.6B v2 on mlx (:8816, /v1/audio/transcriptions)
@@ -92,7 +109,7 @@ brew install whisper.cpp
 whisper-server -m ~/models/ggml-large-v3-turbo.bin --port 8090
 ```
 
-then switch to `default`, hit **mic off → listening**, and talk. macOS asks for mic access the first time.
+For that optional stack, switch to `default`, hit **mic off → listening**, and talk. macOS asks for mic access the first time.
 
 ### what's verified vs not
 
@@ -101,7 +118,8 @@ checked against each project's README (Oct 2026), not run on a Mac by me:
 - parakeet-api commands and port, llama-server `-hf` lines (`ggml-org/Kev-0.8B-GGUF` has a `Q8_0` file), the `/v1/systemone` request/answer shape (from ggml-org's decision models post), ptts-openai-server docker line, ptts-ws-server protocol, `claude -p --output-format stream-json --verbose`
 - **unverified**: whether brew's current `llama.cpp` bottle already has `/v1/systemone`, `codex exec --json` event names (parsed defensively), the sherpa-onnx provider (not a dependency, untested), LFM2 / FunctionGemma tool-call parsing through llama-server `--jinja`, Qwen3's `enable_thinking` kwarg being honoured by the 2507 instruct template (harmless if not)
 - **run in CI / the Linux sandbox**: the whole orchestrator with mock providers (tests), every HTTP provider against fake servers, Silero VAD v6 through onnxruntime-node (real model), and the app booting under xvfb with two typed turns, including first audio coming back from the real renderer player and a real **Phonon 31m in-process** turn (loaded in ~1 s, cross-origin isolated, 2 threads)
-- never tested: a real mic, real speakers, echo cancellation during barge-in, any real model server
+- **real no-sidecar smoke:** a public 7.43-second speech WAV → Parakeet v2 WASM CPU → exact transcript repeat → Phonon worker synthesis passed in both built and `bun run dev` modes. STT inference took about 2 seconds in this cloud CPU environment; this is not a Mac latency claim. WebGPU was unavailable and the UI reported the CPU fallback. Cache download integrity, repair and partial cleanup have fixture tests.
+- never tested: a real mic, real speakers, echo cancellation during barge-in, any real model server. CPU Phonon TTS was separately tested successfully by the owner; this does not establish real-microphone or WebGPU STT performance on their Mac.
 
 ## notes
 
@@ -124,10 +142,13 @@ bun run dist:mac     # arm64 zip + dmg (unsigned)
 
 # boot smoke: Mock profile, two typed turns, prints a JSON line and quits
 bun run build; env PARROTFISH_SMOKE=1 ./node_modules/.bin/electron .
+
+# opt-in real-model loop (downloads models on first run; short 16 kHz speech WAV)
+env PARROTFISH_SMOKE=1 PARROTFISH_SMOKE_LOCAL=1 PARROTFISH_SMOKE_WAV=/absolute/path/speech.wav ./node_modules/.bin/electron .
 ```
 
 adding a provider: one file under `src/core/providers/<stage>/`, one line in `src/core/registry.ts`. the settings form picks up its options from the registry entry.
 
 ## license
 
-MIT. Phonon runtime (MIT OR Apache-2.0), Phonon 31m weights and voices (Apache-2.0) and Silero VAD (MIT) are downloaded at runtime, not bundled.
+MIT app. Bundled inference libraries: parakeet.js and ONNX Runtime (MIT). Downloaded assets, not bundled weights: Phonon runtime (MIT OR Apache-2.0), Phonon 31m weights and voices (Apache-2.0), Parakeet TDT v2 (NVIDIA, CC BY 4.0; ONNX conversion by istupakov), and Silero VAD (MIT).

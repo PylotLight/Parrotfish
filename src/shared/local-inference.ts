@@ -1,0 +1,9 @@
+export interface LocalInferenceStatus {
+  stage: 'stt' | 'tts'
+  state: 'idle' | 'downloading' | 'loading' | 'benchmarking' | 'ready' | 'error'
+  label: string
+  backend?: string
+  detail?: string
+  received?: number
+  total?: number
+}

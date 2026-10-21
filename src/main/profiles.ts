@@ -12,7 +12,7 @@ export class ProfileStore {
   private readonly dir: string
   private readonly settingsPath: string
   private cache = new Map<string, Profile>()
-  private activeName = 'default'
+  private activeName = 'Local loop'
 
   constructor(userData: string) {
     this.dir = join(userData, 'profiles')

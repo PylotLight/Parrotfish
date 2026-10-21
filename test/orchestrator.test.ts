@@ -113,10 +113,10 @@ describe('orchestrator', () => {
         return r.tool !== 'open_app'
       }
     })
-    const uptime = await orchestrator.runTurn({ source: 'text', text: 'what is the uptime' })
+    const uptime = await orchestrator.runTurn({ source: 'text', text: 'what time is it' })
     expect(uptime.decision?.action).toBe('device_action')
-    expect(uptime.tools[0]).toMatchObject({ name: 'run_shell', approval: 'not-needed' })
-    expect(uptime.reply).toContain('uptime says')
+    expect(uptime.tools[0]).toMatchObject({ name: 'get_time', approval: 'not-needed' })
+    expect(uptime.reply).toContain("It's")
     expect(uptime.timings.marks.toolCall).toBeNumber()
 
     const open = await orchestrator.runTurn({ source: 'text', text: 'open safari please' })

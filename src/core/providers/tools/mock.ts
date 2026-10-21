@@ -12,7 +12,6 @@ export const mockTools: ProviderFactory<ToolCallerProvider> = (options) => ({
     const open = /open (\w+)/.exec(t)
     if (open && has('open_app')) calls.push({ name: 'open_app', args: { name: open[1]!.charAt(0).toUpperCase() + open[1]!.slice(1) } })
     else if (/note/.test(t) && has('create_note')) calls.push({ name: 'create_note', args: { body: transcript.replace(/^.*?note( that)?\s*/i, '') || transcript } })
-    else if (/uptime|disk/.test(t) && has('run_shell')) calls.push({ name: 'run_shell', args: /disk/.test(t) ? { command: 'df', args: ['-h', '/'] } : { command: 'uptime' } })
     else if (/time|date/.test(t) && has('get_time')) calls.push({ name: 'get_time', args: {} })
     return { calls, text: '' }
   }

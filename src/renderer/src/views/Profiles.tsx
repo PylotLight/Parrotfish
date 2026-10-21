@@ -106,10 +106,7 @@ function StageEditor({ stage, profile, providers, onChange, voices }: { stage: S
               {t}
             </label>
           ))}
-          <label className="field">
-            <span>run_shell allowlist</span>
-            <input value={profile.tools.shellAllowlist.join(' ')} onChange={(e) => onChange({ ...profile, tools: { ...profile.tools, shellAllowlist: e.target.value.split(/\s+/).filter(Boolean) } })} />
-          </label>
+          <p className="muted small">Device actions are typed and validated in main. Model-generated shell commands are not supported.</p>
         </div>
       )}
       {stage === 'brain' && (

@@ -8,6 +8,7 @@ import { readFile } from 'node:fs/promises'
 import { dirname, extname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { PhononHost, PhononSpeakOptions } from '../../core/providers/types'
+import { STT_SCHEME } from '../../shared/stt-engine'
 import { splitSpeed } from '../../shared/phonon-speed'
 import { TTS_ORIGIN, TTS_PAGE, TTS_PARTITION, TTS_SCHEME, type EngineCommand, type EngineEvent } from '../../shared/tts-engine'
 import type { PcmChunk } from '../../shared/types'
@@ -44,7 +45,7 @@ const PAGE_CSP = [
 
 /** Must run before app ready (Electron takes one registerSchemesAsPrivileged call). */
 export function registerTtsScheme(): void {
-  protocol.registerSchemesAsPrivileged([{ scheme: TTS_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, codeCache: true } }])
+  protocol.registerSchemesAsPrivileged([TTS_SCHEME, STT_SCHEME].map((scheme) => ({ scheme, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, codeCache: true } })))
 }
 
 function devServerUrl(): string | null {
@@ -69,6 +70,7 @@ interface Pending {
   end(): void
   fail(error: Error): void
 }
+interface PendingWarm { resolve(): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
 
 export class PhononEngine implements PhononHost {
   private window: BrowserWindow | null = null
@@ -77,11 +79,15 @@ export class PhononEngine implements PhononHost {
   private engineSession: Session | null = null
   private nextId = 1
   private readonly pending = new Map<number, Pending>()
+  private readonly warming = new Map<number, PendingWarm>()
+  private nextWarmId = 1
   lastLoad: Extract<EngineEvent, { type: 'loaded' }> | null = null
 
   constructor(
     private readonly downloads: PhononDownloads,
-    private readonly log: (line: string) => void
+    private readonly log: (line: string) => void,
+    private readonly onLoaded?: (info: Extract<EngineEvent, { type: 'loaded' }>) => void,
+    private readonly onFailure?: (error: Error) => void
   ) {}
 
   private getSession(): Session {
@@ -137,9 +143,9 @@ export class PhononEngine implements PhononHost {
     const contents = win.webContents
     contents.setWindowOpenHandler(() => ({ action: 'deny' }))
     contents.on('will-navigate', (e) => e.preventDefault())
-    contents.ipc.on('tts-engine:event', (_e, value: EngineEvent) => this.onEvent(value))
+    contents.ipc.on('tts-engine:event', (event, value: EngineEvent) => { if (event.senderFrame === contents.mainFrame) this.onEvent(value) })
     contents.on('render-process-gone', () => this.reset('The Phonon engine stopped unexpectedly'))
-    win.on('closed', () => this.reset('The Phonon engine window closed'))
+    win.on('closed', () => { if (this.window === win) this.reset('The Phonon engine window closed') })
     this.ready = new Promise<BrowserWindow>((resolveReady, rejectReady) => {
       const timer = setTimeout(() => rejectReady(new Error('The Phonon engine did not start')), 20_000)
       this.markReady = () => {
@@ -152,14 +158,19 @@ export class PhononEngine implements PhononHost {
       })
     })
     void win.loadURL(`${TTS_ORIGIN}/${TTS_PAGE}`).catch(() => undefined)
-    return this.ready
+    return this.ready.catch((error) => { this.reset(error instanceof Error ? error.message : String(error)); throw error })
   }
 
   private reset(reason: string): void {
+    const previous = this.window
     this.window = null
     this.ready = null
+    if (previous && !previous.isDestroyed()) previous.destroy()
     for (const p of this.pending.values()) p.fail(new Error(reason))
     this.pending.clear()
+    for (const warm of this.warming.values()) { clearTimeout(warm.timer); warm.reject(new Error(`${reason}. Retry to restart the local speech engine.`)) }
+    this.warming.clear()
+    this.onFailure?.(new Error(reason))
   }
 
   private onEvent(event: EngineEvent): void {
@@ -170,13 +181,41 @@ export class PhononEngine implements PhononHost {
     if (event.type === 'loaded') {
       this.lastLoad = event
       this.log(`phonon loaded in ${event.loadMs} ms (threads ${event.threads}, ${event.device}, isolated ${event.isolated})`)
+      this.onLoaded?.(event)
+      if (event.requestId !== undefined) this.finishWarm(event.requestId)
+      return
+    }
+    if (event.type === 'warm-error') {
+      this.log(`phonon ${event.type}: ${event.message}`)
+      if (event.requestId !== undefined) this.failWarm(event.requestId, new Error(`Phonon failed to load: ${event.message}. Check the downloaded model/runtime and retry.`))
+      return
+    }
+    if (event.type === 'worker-error') {
+      const error = new Error(`Phonon worker failed: ${event.message}. Retry to restart the local speech engine.`)
+      this.log(error.message)
+      this.reset(error.message)
       return
     }
     const p = this.pending.get(event.id)
     if (!p) return
     if (event.type === 'chunk') p.push({ samples: event.samples instanceof Float32Array ? event.samples : new Float32Array(event.samples), sampleRate: event.sampleRate })
     else if (event.type === 'done') p.end()
-    else if (event.type === 'error') p.fail(new Error(`phonon: ${event.message}`))
+    else if (event.type === 'error') { const error = new Error(`phonon: ${event.message}`); p.fail(error); this.onFailure?.(error) }
+  }
+
+  private finishWarm(id: number): void {
+    const warm = this.warming.get(id)
+    if (!warm) return
+    clearTimeout(warm.timer)
+    this.warming.delete(id)
+    warm.resolve()
+  }
+  private failWarm(id: number, error: Error): void {
+    const warm = this.warming.get(id)
+    if (!warm) return
+    clearTimeout(warm.timer)
+    this.warming.delete(id)
+    warm.reject(error)
   }
 
   private send(command: EngineCommand): void {
@@ -188,12 +227,22 @@ export class PhononEngine implements PhononHost {
   async warm(): Promise<void> {
     await this.downloads.ensureModel()
     await this.ensureWindow()
+    const requestId = this.nextWarmId++
+    return new Promise<void>((resolveWarm, rejectWarm) => {
+      const timer = setTimeout(() => this.reset('Phonon engine load timed out after 120 seconds. Retry Prepare models.'), 120_000)
+      this.warming.set(requestId, { resolve: resolveWarm, reject: rejectWarm, timer })
+      this.send({ type: 'warm', durationDelta: 0, requestId })
+    })
   }
 
   async *stream(text: string, options: PhononSpeakOptions, signal: AbortSignal): AsyncGenerator<PcmChunk> {
+    if (signal.aborted) return
     await this.downloads.ensureModel()
+    if (signal.aborted) return
     const voiceFile = await this.downloads.ensureVoice(options.voice || 'default')
+    if (signal.aborted) return
     await this.ensureWindow()
+    if (signal.aborted) return
     const split = splitSpeed(options.speed)
     const id = this.nextId++
     const queue: PcmChunk[] = []
@@ -220,6 +269,7 @@ export class PhononEngine implements PhononHost {
       wake?.()
     }
     signal.addEventListener('abort', onAbort, { once: true })
+    if (signal.aborted) { onAbort(); this.pending.delete(id); signal.removeEventListener('abort', onAbort); return }
     try {
       this.send({
         type: 'speak',

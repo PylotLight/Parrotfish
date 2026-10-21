@@ -70,6 +70,7 @@
   },
   "dependencies": {
     "onnxruntime-node": "^1.30.0",
+    "parakeet.js": "1.4.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   }

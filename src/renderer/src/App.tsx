@@ -7,6 +7,7 @@ import { Player } from './audio/player'
 import { applyEvent } from './turns'
 import { BenchView } from './views/Bench'
 import { LiveView } from './views/Live'
+import { LocalModels } from './views/LocalModels'
 import { Logo } from './views/Logo'
 import { LogsView } from './views/Logs'
 import { ProfilesView } from './views/Profiles'
@@ -29,6 +30,7 @@ export default function App() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [turns, setTurns] = useState<TurnRecord[]>([])
   const [state, setState] = useState<LiveState>('idle')
+  const [micStarting, setMicStarting] = useState(false)
   const [mic, setMic] = useState<MicStatus>({ on: false, vad: '' })
   const [level, setLevel] = useState({ p: 0, speaking: false })
   const [approval, setApproval] = useState<ApprovalRequest | null>(null)
@@ -71,6 +73,7 @@ export default function App() {
       setMic(await api.mic.stop())
       return
     }
+    setMicStarting(true)
     try {
       const status = await api.mic.start()
       setMic(status)
@@ -79,7 +82,7 @@ export default function App() {
     } catch (error) {
       await api.mic.stop()
       setMic({ on: false, vad: '', error: error instanceof Error ? error.message : String(error) })
-    }
+    } finally { setMicStarting(false) }
   }
 
   const switchProfile = async (name: string): Promise<void> => {
@@ -112,9 +115,9 @@ export default function App() {
             ))}
           </select>
           <span className={`state-pill state-${state}`}>{state}</span>
-          <button className={mic.on ? 'mic on' : 'mic'} onClick={() => void toggleMic()} title={mic.on ? `Listening (${mic.vad} VAD)` : 'Start listening'}>
+          <button className={mic.on ? 'mic on' : 'mic'} onClick={() => void toggleMic()} disabled={micStarting} title={mic.on ? `Listening (${mic.vad} VAD)` : 'Start listening'}>
             <span className="mic-dot" style={{ transform: `scale(${1 + (mic.on ? level.p : 0) * 0.8})` }} />
-            {mic.on ? (level.speaking ? 'hearing you' : 'listening') : 'mic off'}
+            {micStarting ? 'preparing mic…' : mic.on ? (level.speaking ? 'hearing you' : 'listening') : 'mic off'}
           </button>
           <button className="ghost" onClick={() => void api.turns.cancel()} disabled={state === 'idle'} title="Stop the agent (same as barge-in)">
             Stop
@@ -123,7 +126,10 @@ export default function App() {
       </header>
       {mic.error && <div className="banner warn">{mic.error}</div>}
       <main className="content">
-        {tab === 'live' && <LiveView turns={turns} profile={profile} onProfileSaved={refreshProfiles} />}
+        {tab === 'live' && <>
+          {profile?.stt.provider === 'parakeet-local' && <LocalModels />}
+          <LiveView turns={turns} profile={profile} onProfileSaved={refreshProfiles} />
+        </>}
         {tab === 'bench' && <BenchView names={names} active={active} />}
         {tab === 'profiles' && <ProfilesView names={names} active={active} onChanged={refreshProfiles} />}
         {tab === 'sidecars' && <SidecarsView />}

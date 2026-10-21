@@ -102,13 +102,14 @@ function onnxHost(modelsDir: string, log: (l: string) => void): OnnxHost {
   }
 }
 
-export function createHost(options: { userData: string; log: (scope: string, line: string) => void; phonon?: PhononHost }): Host {
+export function createHost(options: { userData: string; log: (scope: string, line: string) => void; phonon?: PhononHost; parakeet?: Host['parakeet'] }): Host {
   const modelsDir = join(options.userData, 'models')
   const notesDir = join(options.userData, 'notes')
   return {
     fetch: ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init)) as typeof fetch,
     spawn: (command, args, opts) => spawnProcess(command, args, opts),
     phonon: options.phonon,
+    parakeet: options.parakeet,
     onnx: onnxHost(modelsDir, (l) => options.log('models', l)),
     modelsDir,
     notesDir,

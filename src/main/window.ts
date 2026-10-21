@@ -28,7 +28,7 @@ export function createMainWindow(): BrowserWindow {
       : { backgroundColor: '#14161b' }),
     webPreferences: {
       preload: preloadPath(),
-      sandbox: false,
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
       // the mic worklet and the audio clock must keep running when the window is in the background
@@ -37,6 +37,8 @@ export function createMainWindow(): BrowserWindow {
     }
   })
   win.once('ready-to-show', () => win.show())
+  win.webContents.on('will-navigate', (event) => event.preventDefault())
+  win.webContents.on('will-redirect', (event) => event.preventDefault())
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) void shell.openExternal(url)
     return { action: 'deny' }

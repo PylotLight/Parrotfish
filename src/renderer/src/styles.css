@@ -690,3 +690,33 @@ pre {
 .modal h3 {
   margin: 0 0 8px;
 }
+
+/* ---- Local loop model readiness */
+.local-readiness {
+  margin: 12px 14px 0;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.local-readiness-head, .local-model-top, .local-progress-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.local-title { font-size: 15px; font-weight: 650; margin-bottom: 3px; }
+.local-model-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.local-model { min-width: 0; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; gap: 5px; }
+.local-model-top strong { overflow-wrap: anywhere; }
+.local-state { font-size: 11px; text-transform: capitalize; color: var(--muted); }
+.local-ready { color: var(--mint); }
+.local-downloading, .local-loading, .local-benchmarking { color: var(--amber); }
+.local-error { color: var(--danger); }
+.local-progress-wrap { justify-content: flex-start; }
+.local-progress { height: 5px; flex: 1; overflow: hidden; background: var(--border); border-radius: 5px; }
+.local-progress span { display: block; height: 100%; background: var(--accent); transition: width 180ms ease; }
+.local-note { line-height: 1.45; }

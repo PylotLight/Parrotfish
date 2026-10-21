@@ -1,6 +1,7 @@
 // The window.parrotfish API the preload exposes to the app renderer.
 import type { BenchReport, BenchRow } from '../core/bench'
 import type { ProviderInfo } from '../core/registry'
+import type { LocalInferenceStatus } from './local-inference'
 import type { CatalogVoice } from './phonon-voices'
 import type { Profile, ProfileIssue, Stage } from './profile'
 import type { ApprovalRequest, LiveState, TurnEvent, TurnRecord } from './types'
@@ -84,6 +85,10 @@ export interface ParrotfishApi {
     stop(id: string): Promise<void>
     logs(id: string): Promise<string[]>
   }
+  local: {
+    status(): Promise<LocalInferenceStatus[]>
+    warm(): Promise<{ ok: boolean; error?: string }>
+  }
   phonon: {
     warm(): Promise<{ ok: boolean; error?: string }>
     voices(): Promise<CatalogVoice[]>
@@ -107,6 +112,7 @@ export interface EventMap {
   sidecar: SidecarState
   'sidecar:log': { id: string; line: string }
   log: LogLine
+  'local:status': LocalInferenceStatus
   'phonon:progress': PhononProgress
   'bench:row': { row: BenchRow; done: number; total: number }
   'profiles:changed': { active: string }
@@ -125,6 +131,7 @@ export const EVENT_CHANNELS: Array<keyof EventMap> = [
   'sidecar',
   'sidecar:log',
   'log',
+  'local:status',
   'phonon:progress',
   'bench:row',
   'profiles:changed'

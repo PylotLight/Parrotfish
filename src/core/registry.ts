@@ -1,6 +1,8 @@
 // Provider registry: stage -> provider id -> factory. Add a provider by writing one file under
 // providers/<stage>/ and listing it here; the settings UI reads `describeProviders()`.
 import type { Profile, Stage } from '../shared/profile'
+import { echoBrain } from './providers/brain/echo'
+import { parakeetLocal } from './providers/stt/parakeet-local'
 import { mockBrain } from './providers/brain/mock'
 import { openaiChat } from './providers/brain/openai-chat'
 import { claudeCode, codexExec } from './providers/escalation/cli-agent'
@@ -43,6 +45,7 @@ export const REGISTRY = {
     energy: { factory: energyVad, label: 'Energy (RMS) fallback', options: { floor: 0.004, ceiling: 0.04 } }
   } satisfies Record<string, Entry<VadProvider>>,
   stt: {
+    'parakeet-local': { factory: () => parakeetLocal, label: 'Parakeet TDT v2 (local worker, auto GPU/CPU)', options: {} },
     parakeet: { factory: parakeetStt, label: 'Parakeet TDT v2 (parakeet-api mlx, :8816)', options: { baseUrl: 'http://127.0.0.1:8816/v1', model: 'mlx-community/parakeet-tdt-0.6b-v2', language: '' } },
     'whisper-cpp': { factory: whisperCppStt, label: 'whisper.cpp server (/inference)', options: { baseUrl: 'http://127.0.0.1:8090', language: '' } },
     'openai-transcriptions': { factory: openaiTranscriptions, label: 'OpenAI-compatible /v1/audio/transcriptions', options: { baseUrl: 'http://127.0.0.1:8000/v1', model: 'whisper-1', apiKey: '', language: '' } },
@@ -61,6 +64,7 @@ export const REGISTRY = {
     mock: { factory: mockTools, label: 'Mock (keyword rules)', options: { delayMs: 60 } }
   } satisfies Record<string, Entry<ToolCallerProvider>>,
   brain: {
+    echo: { factory: echoBrain, label: 'Repeat transcript (speech loop, no LLM)', options: {} },
     'openai-chat': { factory: openaiChat, label: 'OpenAI-compatible streaming chat', options: { baseUrl: 'http://127.0.0.1:8081/v1', model: 'local', temperature: 0.6, maxTokens: 300, apiKey: '', thinking: false } },
     mock: { factory: mockBrain, label: 'Mock', options: { delayMs: 180, tokenMs: 25 } }
   } satisfies Record<string, Entry<BrainProvider>>,

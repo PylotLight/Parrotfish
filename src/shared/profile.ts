@@ -51,6 +51,7 @@ export interface SidecarConfig {
 
 export interface ToolsConfig extends StageConfig {
   enabled: string[]
+  /** Legacy compatibility only; never grants shell execution. */
   shellAllowlist: string[]
 }
 
@@ -81,9 +82,9 @@ export const DEFAULT_SPLITTER: SplitterConfig = { minChars: 12, maxChars: 220, e
 export const DEFAULT_SYSTEM_PROMPT =
   'You are Parrotfish, a voice assistant running on this Mac. Answer in one to three short spoken sentences. No markdown, no lists, no emoji.'
 
-export const DEMO_TOOLS = ['open_app', 'get_time', 'run_shell', 'create_note'] as const
+export const DEMO_TOOLS = ['open_app', 'get_time', 'create_note'] as const
 
-const SHELL_ALLOWLIST = ['ls', 'pwd', 'date', 'uptime', 'whoami', 'df', 'sw_vers', 'uname', 'pmset', 'du']
+const SHELL_ALLOWLIST: string[] = []
 
 /** The Mac stack from the README "getting started": Parakeet, Kev-0.8B, LFM2 tools, Qwen3 4B, Phonon 31m in-process. */
 export function defaultProfile(): Profile {
@@ -143,7 +144,24 @@ export function baselineProfile(): Profile {
   }
 }
 
-export const BUILTIN_PROFILES = [defaultProfile, mockProfile, baselineProfile] as const
+/** Narrow real-inference loop: repeat the transcript, no language model or device actions. */
+export function localLoopProfile(): Profile {
+  const base = defaultProfile()
+  return {
+    ...base,
+    name: 'Local loop',
+    description: 'No-sidecar mic → Parakeet TDT 0.6B v2 → repeat transcript → CPU Phonon 31m. This is a speech loop, not a conversational brain.',
+    vad: { ...base.vad, provider: 'energy' },
+    stt: { provider: 'parakeet-local', options: {} },
+    router: { ...base.router, provider: 'none', options: {}, askEndOfTurn: false, askBargeIn: false },
+    brain: { ...base.brain, provider: 'echo', options: {}, maxHistoryTurns: 0 },
+    tools: { ...base.tools, provider: 'none', options: {}, enabled: [] },
+    escalation: { provider: 'none', options: {} },
+    sidecars: []
+  }
+}
+
+export const BUILTIN_PROFILES = [localLoopProfile, defaultProfile, mockProfile, baselineProfile] as const
 
 function obj(v: unknown): Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {}

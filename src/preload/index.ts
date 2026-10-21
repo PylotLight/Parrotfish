@@ -39,6 +39,10 @@ const api: ParrotfishApi = {
     stop: (id) => ipcRenderer.invoke('sidecars:stop', id),
     logs: (id) => ipcRenderer.invoke('sidecars:logs', id)
   },
+  local: {
+    status: () => ipcRenderer.invoke('local:status'),
+    warm: () => ipcRenderer.invoke('local:warm')
+  },
   phonon: {
     warm: () => ipcRenderer.invoke('phonon:warm'),
     voices: () => ipcRenderer.invoke('phonon:voices')
