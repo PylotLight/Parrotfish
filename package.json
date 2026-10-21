@@ -14,7 +14,7 @@
     "preview": "electron-vite preview",
     "clean": "rm -rf out",
     "typecheck": "bun check",
-    "lint": "oxlint src scripts",
+    "lint": "oxlint src scripts test",
     "check:css": "bun scripts/ci/check-css.ts",
     "dist": "electron-builder",
     "dist:dir": "electron-builder --dir",
