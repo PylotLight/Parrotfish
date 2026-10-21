@@ -5,6 +5,7 @@ import type { Profile } from '../shared/profile'
 import type { TurnRecord } from '../shared/types'
 import type { Orchestrator } from './orchestrator'
 import type { SttAudio } from './providers/types'
+import type { AudioSink } from './speech-queue'
 import { summarize, type TimingSummary } from './timing'
 
 export interface BenchCase {
@@ -80,6 +81,16 @@ export function summarizeRows(rows: BenchRow[], profile: string): BenchProfileSu
   }
 }
 
+/** Counts the first synthesized chunk as first audio; plays nothing. */
+export const benchSink: AudioSink = {
+  begin(_turnId, onStart) {
+    onStart()
+  },
+  write() {},
+  end() {},
+  stop() {}
+}
+
 /** Runs every case on each profile in turn (A then B per case, so drift hits both). */
 export async function runBench(
   orchestrator: Orchestrator,
@@ -94,7 +105,7 @@ export async function runBench(
     for (const c of cases) {
       for (const profile of profiles) {
         if (options.signal?.aborted) break
-        const record = await orchestrator.runTurn({ source: 'bench', isolated: true, profile, ...(c.text !== undefined ? { text: c.text } : { audio: c.audio }) })
+        const record = await orchestrator.runTurn({ source: 'bench', isolated: true, sink: benchSink, autoApprove: false, profile, ...(c.text !== undefined ? { text: c.text } : { audio: c.audio }) })
         const row = rowFrom(c.name, record)
         rows.push(row)
         options.onRow?.(row, rows.length, total)

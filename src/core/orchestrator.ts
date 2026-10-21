@@ -33,8 +33,12 @@ export interface TurnInput {
   vadHangMs?: number
   /** Bench runs a specific profile instead of the active one. */
   profile?: Profile
-  /** Bench: don't touch the shared conversation history. */
+  /** Bench: don't touch the shared conversation history or cancel the live turn. */
   isolated?: boolean
+  /** Bench: its own sink (no speakers) instead of the app's. */
+  sink?: AudioSink
+  /** Bench: answer destructive-tool approvals without asking (default: ask the UI). */
+  autoApprove?: boolean
 }
 
 /** Applies the confidence threshold: a low-confidence pick becomes the profile's fallback. */
@@ -170,7 +174,7 @@ export class Orchestrator {
     emit({ type: 'turn-start', id, source: input.source, profile: profile.name })
     if (input.text === undefined) mark('endOfSpeech')
 
-    const queue = new SpeechQueue(createProvider('tts', profile), this.deps.sink, id, this.deps.host, signal, () => {
+    const queue = new SpeechQueue(createProvider('tts', profile), input.sink ?? this.deps.sink, id, this.deps.host, signal, () => {
       mark('firstAudio')
       if (this.active === turn) {
         this.playing = true
@@ -217,7 +221,7 @@ export class Orchestrator {
       if (action === 'escalate' && isDisabled(profile, 'escalation')) action = 'reply_local'
       if (action === 'ignore') return this.finish(turn, clock, 'done')
       if (action === 'device_action') {
-        const handled = await this.deviceAction(turn, profile, transcript, ctx, speak, () => mark('toolCall'))
+        const handled = await this.deviceAction(turn, profile, transcript, ctx, speak, () => mark('toolCall'), input.autoApprove)
         if (!handled) await this.brain(id, profile, transcript, ctx, speak, mark, input.isolated ? [] : this.history)
       } else if (action === 'escalate') {
         await this.escalate(turn, profile, transcript, ctx, speak)
@@ -293,7 +297,7 @@ export class Orchestrator {
   }
 
   /** Runs the tool caller. Returns false when it planned nothing and said nothing (brain takes over). */
-  private async deviceAction(turn: ActiveTurn, profile: Profile, transcript: string, ctx: ProviderContext, speak: (text: string) => void, markTool: () => void): Promise<boolean> {
+  private async deviceAction(turn: ActiveTurn, profile: Profile, transcript: string, ctx: ProviderContext, speak: (text: string) => void, markTool: () => void, autoApprove?: boolean): Promise<boolean> {
     const tools = profile.tools.enabled.map((n) => TOOL_SPECS[n]).filter((t) => !!t)
     const plan = await createProvider('tools', profile).plan(transcript, tools, ctx)
     if (plan.calls.length === 0) {
@@ -313,7 +317,7 @@ export class Orchestrator {
         output = `refused: ${call.name} is not enabled`
         spoken = "I can't do that one."
       } else {
-        if (spec.destructive) approval = await this.askApproval(turn, call, ctx.signal)
+        if (spec.destructive) approval = autoApprove === undefined ? await this.askApproval(turn, call, ctx.signal) : autoApprove ? 'approved' : 'denied'
         if (approval === 'denied' || approval === 'timeout') {
           output = `not run: ${approval}`
           spoken = approval === 'denied' ? 'Okay, I left it.' : 'No answer, so I left it.'
