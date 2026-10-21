@@ -149,6 +149,7 @@ export class Orchestrator {
     const signal = controller.signal
     const ctx: ProviderContext = { signal, host: this.deps.host }
     const clock = new TurnClock(this.deps.now, Date.now(), input.vadHangMs)
+    if (input.text === undefined) clock.mark('endOfSpeech')
     const emit = this.deps.emit
     const mark = (name: Parameters<TurnClock['mark']>[0]): void => {
       if (clock.has(name)) return
@@ -172,7 +173,7 @@ export class Orchestrator {
       this.setState('thinking')
     }
     emit({ type: 'turn-start', id, source: input.source, profile: profile.name })
-    if (input.text === undefined) mark('endOfSpeech')
+    if (input.text === undefined) emit({ type: 'mark', id, mark: 'endOfSpeech', ms: 0 })
 
     const queue = new SpeechQueue(createProvider('tts', profile), input.sink ?? this.deps.sink, id, this.deps.host, signal, () => {
       mark('firstAudio')

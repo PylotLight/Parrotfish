@@ -19,7 +19,7 @@ describe('orchestrator', () => {
     expect(m.firstToken!).toBeLessThanOrEqual(m.firstSentence!)
     expect(m.firstSentence!).toBeLessThanOrEqual(m.firstAudio!)
     expect(m.firstAudio!).toBeLessThanOrEqual(m.done!)
-    expect(record.timings.voiceToVoiceMs).toBe(m.firstAudio!)
+    expect(record.timings.voiceToVoiceMs).toBeCloseTo(m.firstAudio! - m.endOfSpeech!, 1)
     expect(record.timings.vadHangMs).toBe(450)
     expect(sink.began).toEqual([record.id])
     expect(sink.ended).toEqual([record.id])
