@@ -48,6 +48,8 @@ export interface TurnTimings {
   /** Voice-to-voice: end of speech -> first audio out. */
   voiceToVoiceMs: number | null
   totalMs: number | null
+  /** Mic turns: silence the VAD waited for before calling end of speech (drawn before 0 on the waterfall). */
+  vadHangMs?: number
 }
 
 export type TurnSource = 'mic' | 'text' | 'bench'
@@ -98,4 +100,4 @@ export interface ApprovalRequest {
   summary: string
 }
 
-export type LiveState = 'idle' | 'listening' | 'hearing' | 'thinking' | 'speaking'
+export type LiveState = 'idle' | 'thinking' | 'speaking'
