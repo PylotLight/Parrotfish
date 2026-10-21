@@ -26,7 +26,9 @@ export function BenchView({ names, active }: { names: string[]; active: string }
   const [error, setError] = useState('')
   const [saved, setSaved] = useState('')
 
-  useEffect(() => setA((x) => x || active), [active])
+  useEffect(() => {
+    setA((x) => x || active)
+  }, [active])
   useEffect(
     () =>
       api.on('bench:row', ({ row, done, total }) => {

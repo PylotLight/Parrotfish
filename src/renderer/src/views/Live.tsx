@@ -14,8 +14,12 @@ export function LiveView({ turns, profile, onProfileSaved }: { turns: TurnRecord
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const listEnd = useRef<HTMLDivElement>(null)
 
-  useEffect(() => setThreshold(profile?.router.threshold ?? 0.5), [profile?.name, profile?.router.threshold])
-  useEffect(() => listEnd.current?.scrollIntoView({ block: 'end' }), [turns.length])
+  useEffect(() => {
+    setThreshold(profile?.router.threshold ?? 0.5)
+  }, [profile?.name, profile?.router.threshold])
+  useEffect(() => {
+    listEnd.current?.scrollIntoView({ block: 'end' })
+  }, [turns.length])
 
   const turn = turns.find((t) => t.id === selected) ?? turns.at(-1) ?? null
 

@@ -10,7 +10,9 @@ export function LogsView() {
     void api.logs().then(setLines)
     return api.on('log', (l) => setLines((all) => [...all.slice(-1999), l]))
   }, [])
-  useEffect(() => end.current?.scrollIntoView({ block: 'end' }), [lines.length])
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: 'end' })
+  }, [lines.length])
   return (
     <section className="log-pane mono small full">
       {lines.map((l, i) => (

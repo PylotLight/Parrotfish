@@ -23,7 +23,7 @@ export default defineConfig({
     root: 'src/renderer',
     plugins: [react()],
     build: {
-      minify: true,
+      minify: !process.env.PF_NO_MINIFY,
       cssMinify: true,
       rollupOptions: {
         input: {

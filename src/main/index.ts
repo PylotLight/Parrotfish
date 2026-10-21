@@ -274,6 +274,7 @@ app.whenReady().then(() => {
   // Smoke test (unpackaged only): `PARROTFISH_SMOKE=1 electron .` boots the window, runs one typed
   // turn on the Mock profile through the real IPC/audio path, prints the record and quits.
   if (!app.isPackaged && process.env.PARROTFISH_SMOKE) {
+    win.webContents.on('console-message', (event) => console.log(`[renderer] ${(event as unknown as { message: string; lineNumber: number; sourceId: string }).message} @${(event as unknown as { sourceId: string }).sourceId}:${(event as unknown as { lineNumber: number }).lineNumber}`))
     win.webContents.once('did-finish-load', async () => {
       const exit = (code: number, payload: unknown): void => {
         console.log(`PARROTFISH_SMOKE ${JSON.stringify(payload)}`)

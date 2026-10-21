@@ -26,3 +26,25 @@ jobs:
         run: bun run build
       - name: CSS blur check
         run: bun run check:css
+
+  smoke:
+    name: "Parrotfish · CI · electron smoke (Mock profile, xvfb) · ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.pull_request.number) || github.ref_name }}"
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - name: Install (bun)
+        run: bun install
+      - name: Electron runtime libs + xvfb
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb xauth libgtk-3-0t64 libnss3 libgbm1 libasound2t64
+      - name: Build
+        run: bun run build
+      - name: Boot the app and run two typed turns on the Mock profile
+        run: |
+          out="$(PARROTFISH_SMOKE=1 timeout 90 xvfb-run -a ./node_modules/electron/dist/electron --no-sandbox . 2>&1 || true)"
+          echo "$out" | grep -E 'PARROTFISH_SMOKE|\[renderer\]|\[app\]' || true
+          echo "$out" | grep -q '^PARROTFISH_SMOKE {"hasApi":true' || { echo "$out" | tail -40; exit 1; }
+          echo "$out" | grep '^PARROTFISH_SMOKE' | grep -q '"firstAudio"' || { echo 'no first-audio mark from the renderer player'; exit 1; }

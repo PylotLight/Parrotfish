@@ -28,7 +28,9 @@ export function SidecarsView() {
       if (id === selected) setLines((l) => [...l.slice(-799), line])
     })
   }, [selected])
-  useEffect(() => end.current?.scrollIntoView({ block: 'end' }), [lines.length])
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: 'end' })
+  }, [lines.length])
 
   return (
     <div className="sidecars">
