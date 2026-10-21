@@ -285,6 +285,16 @@ app.whenReady().then(() => {
         const hasApi = await win!.webContents.executeJavaScript('typeof window.parrotfish === "object" && !!document.querySelector(".titlebar")')
         const record = await orchestrator.runTurn({ source: 'text', text: 'what is the uptime' })
         const second = await orchestrator.runTurn({ source: 'text', text: 'tell me something nice' })
+        if (process.env.PARROTFISH_SMOKE_SHOT) await writeFile(process.env.PARROTFISH_SMOKE_SHOT, (await win!.webContents.capturePage()).toPNG())
+        if (process.env.PARROTFISH_SMOKE_PHONON) {
+          // the real default TTS: downloads Phonon 31m (~71 MB) on first run, then speaks through the engine window
+          const mock = store.get('Mock')
+          const phononProfile = { ...mock, name: 'smoke-phonon', tts: { provider: 'phonon-wasm', options: { voice: 'default', speed: 1.5 } } }
+          store.save(phononProfile)
+          const third = await orchestrator.runTurn({ source: 'text', text: 'say hello', profile: store.get('smoke-phonon'), isolated: true, sink: { begin: (_id, onStart) => onStart(), write: () => undefined, end: () => undefined, stop: () => undefined } })
+          console.log(`PARROTFISH_SMOKE_PHONON ${JSON.stringify({ status: third.status, error: third.error, marks: third.timings.marks, load: phonon.lastLoad })}`)
+          store.remove('smoke-phonon')
+        }
         exit(hasApi && record.status === 'done' && second.status === 'done' ? 0 : 1, { hasApi, first: { status: record.status, route: record.decision?.action, reply: record.reply, timings: record.timings }, second: { status: second.status, v2v: second.timings.voiceToVoiceMs, marks: second.timings.marks, error: second.error } })
       } catch (error) {
         exit(1, { error: error instanceof Error ? error.message : String(error) })
