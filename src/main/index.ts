@@ -285,6 +285,11 @@ app.whenReady().then(() => {
         const hasApi = await win!.webContents.executeJavaScript('typeof window.parrotfish === "object" && !!document.querySelector(".titlebar")')
         const record = await orchestrator.runTurn({ source: 'text', text: 'what is the uptime' })
         const second = await orchestrator.runTurn({ source: 'text', text: 'tell me something nice' })
+        // Silero VAD through onnxruntime-node inside Electron main (downloads the 2.3 MB model)
+        const vad = await createProvider('vad', store.get('default')).open(host)
+        const tone = Float32Array.from({ length: 512 }, (_, i) => 0.4 * Math.sin(i / 3))
+        const silero = { silence: await vad.process(new Float32Array(512)), tone: await vad.process(tone) }
+        vad.release()
         if (process.env.PARROTFISH_SMOKE_SHOT) await writeFile(process.env.PARROTFISH_SMOKE_SHOT, (await win!.webContents.capturePage()).toPNG())
         if (process.env.PARROTFISH_SMOKE_PHONON) {
           // the real default TTS: downloads Phonon 31m (~71 MB) on first run, then speaks through the engine window
@@ -295,7 +300,7 @@ app.whenReady().then(() => {
           console.log(`PARROTFISH_SMOKE_PHONON ${JSON.stringify({ status: third.status, error: third.error, marks: third.timings.marks, load: phonon.lastLoad })}`)
           store.remove('smoke-phonon')
         }
-        exit(hasApi && record.status === 'done' && second.status === 'done' ? 0 : 1, { hasApi, first: { status: record.status, route: record.decision?.action, reply: record.reply, timings: record.timings }, second: { status: second.status, v2v: second.timings.voiceToVoiceMs, marks: second.timings.marks, error: second.error } })
+        exit(hasApi && record.status === 'done' && second.status === 'done' ? 0 : 1, { hasApi, silero, first: { status: record.status, route: record.decision?.action, reply: record.reply, timings: record.timings }, second: { status: second.status, v2v: second.timings.voiceToVoiceMs, marks: second.timings.marks, error: second.error } })
       } catch (error) {
         exit(1, { error: error instanceof Error ? error.message : String(error) })
       }
