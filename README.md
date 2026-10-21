@@ -53,7 +53,8 @@ uv tool install "parakeet-api[mlx]"
 parakeet-api download mlx --id mlx-community/parakeet-tdt-0.6b-v2
 env STT__MLX__MODEL_ID=mlx-community/parakeet-tdt-0.6b-v2 parakeet-api serve
 
-# llama.cpp (needs a build with /v1/systemone, b11361 or newer)
+# llama.cpp: /v1/systemone landed 2026-10-02 (b11361). check `llama-server --version`,
+# and if brew's bottle is older, `llama update` or build from source
 brew install llama.cpp
 
 # router: Kev-0.8B decision model (:8082, /v1/systemone)
@@ -86,7 +87,7 @@ ptts --lang en "Hello from Phonon." -o speech.wav
 baseline profile extras:
 
 ```fish
-brew install whisper-cpp
+brew install whisper.cpp
 # grab a ggml model (e.g. ggml-large-v3-turbo.bin) into ~/models first
 whisper-server -m ~/models/ggml-large-v3-turbo.bin --port 8090
 ```
@@ -97,8 +98,8 @@ then switch to `default`, hit **mic off → listening**, and talk. macOS asks fo
 
 checked against each project's README (Oct 2026), not run on a Mac by me:
 
-- parakeet-api commands and port, llama-server `-hf` lines, the `/v1/systemone` request/answer shape (from ggml-org's decision models post), ptts-openai-server docker line, ptts-ws-server protocol, `claude -p --output-format stream-json --verbose`
-- **unverified**: Kev-0.8B GGUF repo name/quant (`ggml-org/Kev-0.8B-GGUF:Q8_0`, the post lists Kev-4B), `codex exec --json` event names (parsed defensively), the sherpa-onnx provider (not a dependency, untested), LFM2 tool-call parsing through llama-server `--jinja`, and the brew formula names `llama.cpp` / `whisper-cpp` having `/v1/systemone` yet
+- parakeet-api commands and port, llama-server `-hf` lines (`ggml-org/Kev-0.8B-GGUF` has a `Q8_0` file), the `/v1/systemone` request/answer shape (from ggml-org's decision models post), ptts-openai-server docker line, ptts-ws-server protocol, `claude -p --output-format stream-json --verbose`
+- **unverified**: whether brew's current `llama.cpp` bottle already has `/v1/systemone`, `codex exec --json` event names (parsed defensively), the sherpa-onnx provider (not a dependency, untested), LFM2 / FunctionGemma tool-call parsing through llama-server `--jinja`, Qwen3's `enable_thinking` kwarg being honoured by the 2507 instruct template (harmless if not)
 - **run in CI / the Linux sandbox**: the whole orchestrator with mock providers (tests), every HTTP provider against fake servers, Silero VAD v6 through onnxruntime-node (real model), and the app booting under xvfb with two typed turns, including first audio coming back from the real renderer player and a real **Phonon 31m in-process** turn (loaded in ~1 s, cross-origin isolated, 2 threads)
 - never tested: a real mic, real speakers, echo cancellation during barge-in, any real model server
 
