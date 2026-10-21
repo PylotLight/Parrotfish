@@ -16,6 +16,8 @@ import type { BenchRequest, EventMap, LogLine, MicStatus } from '../shared/api'
 import { parseVoiceCatalog, publicVoice, MODEL_VOICE, ENGLISH_VOICE_SHA256, VOICES_REPO } from '../shared/phonon-voices'
 import { localLoopProfile } from '../shared/profile'
 import type { LocalInferenceStatus } from '../shared/local-inference'
+import { DEFAULT_LOCAL_STT_MODEL, requireLocalSttModel } from '../shared/local-stt-models'
+import { localSttStatus } from '../shared/local-stt-status'
 import { ParakeetEngine } from './parakeet/engine-host'
 import type { ApprovalRequest } from '../shared/types'
 import { createHost } from './host'
@@ -70,12 +72,26 @@ app.whenReady().then(() => {
   const userData = app.getPath('userData')
   const store = new ProfileStore(userData)
   const localStatus = new Map<LocalInferenceStatus['stage'], LocalInferenceStatus>([
-    ['stt', { stage: 'stt', state: 'idle', label: 'Parakeet TDT 0.6B v2', detail: 'Prepare models to download and select the fastest available backend.' }],
+    ['stt', localSttStatus(store.active.stt.options.model)],
     ['tts', { stage: 'tts', state: 'idle', label: 'Phonon 31m', backend: 'CPU / WASM', detail: 'Validated CPU path; downloaded assets are cached locally.' }]
   ])
-  const updateLocal = (status: LocalInferenceStatus): void => {
+  const sttStatuses = new Map<string, LocalInferenceStatus>()
+  const publishLocal = (status: LocalInferenceStatus): void => {
     localStatus.set(status.stage, status)
     send('local:status', status)
+  }
+  const refreshSttStatus = (): void => {
+    const selected = localSttStatus(store.active.stt.options.model)
+    publishLocal(localSttStatus(store.active.stt.options.model, selected.modelId ? sttStatuses.get(selected.modelId) : undefined))
+  }
+  const updateLocal = (status: LocalInferenceStatus): void => {
+    if (status.stage === 'stt') {
+      // Engine events remain tied to the checkpoint that produced them, even if
+      // the active profile changes while a download/probe is in flight.
+      const tagged = { ...status, modelId: status.modelId ?? DEFAULT_LOCAL_STT_MODEL }
+      sttStatuses.set(tagged.modelId, tagged)
+      refreshSttStatus()
+    } else publishLocal(status)
   }
   const downloads = new PhononDownloads(join(userData, 'phonon'), (p) => {
     send('phonon:progress', p)
@@ -87,17 +103,28 @@ app.whenReady().then(() => {
   const parakeet = new ParakeetEngine({ userData, onStatus: updateLocal, log: (line: string) => log('parakeet', line) })
   const host = createHost({ userData, log, phonon, parakeet })
   let warming: Promise<{ ok: boolean; error?: string }> | null = null
+  let warmingModel = ''
   function warmLocal(): Promise<{ ok: boolean; error?: string }> {
-    if (warming) return warming
+    let selected: ReturnType<typeof requireLocalSttModel>
+    try { selected = requireLocalSttModel(store.active.stt.options.model) }
+    catch (error) {
+      refreshSttStatus()
+      return Promise.resolve({ ok: false, error: error instanceof Error ? error.message : String(error) })
+    }
+    if (warming) return warmingModel === selected.id ? warming : warming.then(() => warmLocal())
+    warmingModel = selected.id
     updateLocal({ stage: 'tts', state: 'loading', label: 'Phonon 31m', backend: 'CPU / WASM', detail: 'Checking local assets and starting inference worker…' })
-    warming = Promise.allSettled([parakeet.warm(), phonon.warm()]).then((results) => {
+    warming = Promise.allSettled([parakeet.warm(selected.id), phonon.warm()]).then((results) => {
       const errors = results.flatMap((result, index) => {
         if (result.status === 'fulfilled') return []
         const message = result.reason instanceof Error ? result.reason.message : String(result.reason)
         const stage = index === 0 ? 'stt' : 'tts'
-        updateLocal({ stage, state: 'error', label: index === 0 ? 'Parakeet TDT 0.6B v2' : 'Phonon 31m', detail: `${message} Retry Prepare models; check network, free disk space and Logs.` })
+        updateLocal({ stage, state: 'error', ...(stage === 'stt' ? { modelId: selected.id } : {}), label: index === 0 ? selected.label : 'Phonon 31m', detail: `${message} Retry Prepare models; check network, free disk space and Logs.` })
         return [message]
       })
+      if (localSttStatus(store.active.stt.options.model).modelId !== selected.id) {
+        return { ok: false, error: 'The selected STT model changed during preparation. Prepare the selected model again.' }
+      }
       return errors.length ? { ok: false, error: errors.join('; ') } : { ok: true }
     }).finally(() => { warming = null })
     return warming
@@ -188,6 +215,7 @@ app.whenReady().then(() => {
   function profileChanged(): void {
     micEpoch += 1
     sidecars.sync(store.active.sidecars)
+    refreshSttStatus()
     send('profiles:changed', { active: store.activeProfileName })
     if (listener) void startMic()
   }
@@ -368,20 +396,38 @@ app.whenReady().then(() => {
           store.remove('smoke-phonon')
         }
         if (process.env.PARROTFISH_SMOKE_LOCAL) {
-          const started = Date.now()
-          const readiness = await warmLocal()
-          if (!readiness.ok) throw new Error(readiness.error)
           const wavPath = process.env.PARROTFISH_SMOKE_WAV
           if (!wavPath) throw new Error('Set PARROTFISH_SMOKE_WAV to a short mono speech WAV')
           const wav = decodeWav(new Uint8Array(await readFile(wavPath)))
-          let samples = 0
-          const local = await orchestrator.runTurn({ source: 'mic', audio: { samples: resample(wav.samples, wav.sampleRate, 16000), sampleRate: 16000 }, profile: localLoopProfile(), isolated: true, sink: { begin: (_id, onStart) => onStart(), write: (chunkId, chunk) => { samples += chunk.samples.length }, end: () => undefined, stop: () => undefined } })
-          await win!.webContents.executeJavaScript('window.parrotfish.profiles.setActive("Local loop")')
-          await new Promise((resolve) => setTimeout(resolve, 250))
-          const localUi = await win!.webContents.executeJavaScript('window.parrotfish.local.status().then(models => ({ hasModelPanel: !!document.querySelector(".local-readiness"), models }))')
-          if (!localUi.hasModelPanel || !localUi.models.every((model: LocalInferenceStatus) => model.state === 'ready')) throw new Error('Local model readiness UI did not become ready')
-          console.log(`PARROTFISH_SMOKE_LOCAL ${JSON.stringify({ localUi, status: local.status, transcript: local.transcript, reply: local.reply, samples, error: local.error, elapsedMs: Date.now() - started, models: [...localStatus.values()] })}`)
-          if (local.status !== 'done' || !local.transcript.trim() || samples === 0) throw new Error('Local loop real-inference smoke failed')
+          const audio = { samples: resample(wav.samples, wav.sampleRate, 16000), sampleRate: 16000 }
+          const modelIds = process.env.PARROTFISH_SMOKE_REDUX
+            ? [DEFAULT_LOCAL_STT_MODEL, 'moondream/parakeet-redux', DEFAULT_LOCAL_STT_MODEL]
+            : [DEFAULT_LOCAL_STT_MODEL]
+          const previousActive = store.activeProfileName
+          for (const modelId of modelIds) {
+            const started = Date.now()
+            const profile = localLoopProfile()
+            profile.name = 'smoke-local-model'
+            profile.stt.options.model = modelId
+            store.save(profile)
+            try {
+              await win!.webContents.executeJavaScript('window.parrotfish.profiles.setActive("smoke-local-model")')
+              const readiness = await warmLocal()
+              if (!readiness.ok) throw new Error(readiness.error)
+              let samples = 0
+              const local = await orchestrator.runTurn({ source: 'mic', audio, profile, isolated: true, sink: { begin: (_id, onStart) => onStart(), write: (_chunkId, chunk) => { samples += chunk.samples.length }, end: () => undefined, stop: () => undefined } })
+              await new Promise((resolve) => setTimeout(resolve, 250))
+              const localUi = await win!.webContents.executeJavaScript('window.parrotfish.local.status().then(models => ({ hasModelPanel: !!document.querySelector(".local-readiness"), models }))')
+              const sttStatus = localUi.models.find((item: LocalInferenceStatus) => item.stage === 'stt')
+              if (!localUi.hasModelPanel || !localUi.models.every((item: LocalInferenceStatus) => item.state === 'ready') || sttStatus?.modelId !== modelId || !sttStatus.backend) throw new Error('Selected model readiness UI did not become ready')
+              console.log(`PARROTFISH_SMOKE_LOCAL ${JSON.stringify({ modelId, localUi, status: local.status, transcript: local.transcript, reply: local.reply, samples, error: local.error, elapsedMs: Date.now() - started, models: [...localStatus.values()] })}`)
+              if (local.status !== 'done' || !local.transcript.trim() || samples === 0) throw new Error('Local loop real-inference smoke failed')
+            } finally {
+              store.setActive(previousActive)
+              store.remove(profile.name)
+              profileChanged()
+            }
+          }
         }
         exit(hasApi && record.status === 'done' && second.status === 'done' ? 0 : 1, { hasApi, silero, first: { status: record.status, route: record.decision?.action, reply: record.reply, timings: record.timings }, second: { status: second.status, v2v: second.timings.voiceToVoiceMs, marks: second.timings.marks, error: second.error } })
       } catch (error) {

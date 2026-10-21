@@ -1,6 +1,7 @@
 // Profiles: one named JSON document per voice-agent stack. Every stage names a provider id from the
 // registry (src/core/registry.ts) plus that provider's options. Stored as <userData>/profiles/<name>.json.
 import { ROUTER_CHOICES, type RouterChoice } from './types'
+import { DEFAULT_LOCAL_STT_MODEL } from './local-stt-models'
 
 export interface StageConfig {
   provider: string
@@ -152,7 +153,7 @@ export function localLoopProfile(): Profile {
     name: 'Local loop',
     description: 'No-sidecar mic → Parakeet TDT 0.6B v2 → repeat transcript → CPU Phonon 31m. This is a speech loop, not a conversational brain.',
     vad: { ...base.vad, provider: 'energy' },
-    stt: { provider: 'parakeet-local', options: {} },
+    stt: { provider: 'parakeet-local', options: { model: DEFAULT_LOCAL_STT_MODEL } },
     router: { ...base.router, provider: 'none', options: {}, askEndOfTurn: false, askBargeIn: false },
     brain: { ...base.brain, provider: 'echo', options: {}, maxHistoryTurns: 0 },
     tools: { ...base.tools, provider: 'none', options: {}, enabled: [] },

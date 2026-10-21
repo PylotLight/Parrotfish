@@ -52,6 +52,7 @@ export function LocalModels() {
           return <div className="local-model" key={model.stage}>
             <div className="local-model-top"><strong>{model.label}</strong><span className={`local-state local-${model.state}`}>{model.state}</span></div>
             <div className="muted small">{model.stage === 'stt' ? 'Speech recognition' : 'Speech synthesis'}{model.backend ? ` · ${model.backend}` : ''}</div>
+            {model.modelId && <div className="muted small">Selected checkpoint: {model.modelId}</div>}
             {model.state === 'downloading' && model.total != null && <div className="local-progress-wrap"><div className="local-progress"><span style={{ width: `${progress}%` }} /></div><span className="muted small">{bytes(model.received)} / {bytes(model.total)}</span></div>}
             {model.detail && <div className={model.state === 'error' ? 'error small' : 'muted small'}>{model.detail}</div>}
           </div>

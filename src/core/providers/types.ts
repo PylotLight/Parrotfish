@@ -11,7 +11,7 @@ export interface Host {
   /** In-process Phonon (hidden cross-origin-isolated window). Absent in tests / on failure. */
   phonon?: PhononHost
   /** In-process Parakeet v2 worker (no HTTP server). */
-  parakeet?: { transcribe(audio: SttAudio, signal: AbortSignal): Promise<SttResult> }
+  parakeet?: { transcribe(audio: SttAudio, signal: AbortSignal, modelId?: string): Promise<SttResult> }
   /** onnxruntime-node in main (Silero VAD). Absent in tests. */
   onnx?: OnnxHost
   /** Where downloaded models live (userData/models). */
