@@ -1,31 +1,38 @@
-# dependencies
+# dependencies (bun install)
 node_modules
 
-# build output
-dist
+# output
 out
-build
+dist
 release
 *.tgz
 
-# coverage
+# code coverage
 coverage
 *.lcov
 
 # logs
 logs
-*.log
+_.log
+report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
-# env
+# dotenv environment variable files
 .env
-.env.*
-!.env.example
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
 
 # caches
-.cache
 .eslintcache
+.cache
 *.tsbuildinfo
 
-# OS
+# IntelliJ based IDEs
+.idea
+
+# Finder (MacOS) folder config
 .DS_Store
-Thumbs.db
+
+# local-only planning docs (never committed)
+docs/roadmap.md
