@@ -17,7 +17,12 @@
   --fs-sm: 12px;
   --fs-md: 13px;
   --fs-lg: 15px;
-  font-family: ui-sans-serif, system-ui, -apple-system, 'SF Pro Text', sans-serif;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "SF Pro Text",
+    sans-serif;
   font-size: var(--fs-md);
 }
 
@@ -94,7 +99,7 @@ select:focus {
 }
 code,
 .mono {
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
 }
 pre {
   white-space: pre-wrap;
@@ -702,21 +707,68 @@ pre {
   flex-direction: column;
   gap: 12px;
 }
-.local-readiness-head, .local-model-top, .local-progress-wrap {
+.local-readiness-head,
+.local-model-top,
+.local-progress-wrap {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
-.local-title { font-size: 15px; font-weight: 650; margin-bottom: 3px; }
-.local-model-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
-.local-model { min-width: 0; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; gap: 5px; }
-.local-model-top strong { overflow-wrap: anywhere; }
-.local-state { font-size: 11px; text-transform: capitalize; color: var(--muted); }
-.local-ready { color: var(--mint); }
-.local-downloading, .local-loading, .local-benchmarking { color: var(--amber); }
-.local-error { color: var(--danger); }
-.local-progress-wrap { justify-content: flex-start; }
-.local-progress { height: 5px; flex: 1; overflow: hidden; background: var(--border); border-radius: 5px; }
-.local-progress span { display: block; height: 100%; background: var(--accent); transition: width 180ms ease; }
-.local-note { line-height: 1.45; }
+.local-title {
+  font-size: 15px;
+  font-weight: 650;
+  margin-bottom: 3px;
+}
+.local-model-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+.local-model {
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.local-model-top strong {
+  overflow-wrap: anywhere;
+}
+.local-state {
+  font-size: 11px;
+  text-transform: capitalize;
+  color: var(--muted);
+}
+.local-ready {
+  color: var(--mint);
+}
+.local-downloading,
+.local-loading,
+.local-benchmarking {
+  color: var(--amber);
+}
+.local-error {
+  color: var(--danger);
+}
+.local-progress-wrap {
+  justify-content: flex-start;
+}
+.local-progress {
+  height: 5px;
+  flex: 1;
+  overflow: hidden;
+  background: var(--border);
+  border-radius: 5px;
+}
+.local-progress span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 180ms ease;
+}
+.local-note {
+  line-height: 1.45;
+}

@@ -14,36 +14,50 @@ class PfTap extends AudioWorkletProcessor {
   }
 }
 registerProcessor('pf-tap', PfTap)
-`
+`;
 
 export interface MicHandle {
-  stop(): void
-  sampleRate: number
+  stop(): void;
+  sampleRate: number;
 }
 
-export async function openMic(onFrame: (frame: Float32Array) => void): Promise<MicHandle> {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } })
-  const ctx = new AudioContext({ sampleRate: 16000, latencyHint: 'interactive' })
-  const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }))
+export async function openMic(
+  onFrame: (frame: Float32Array) => void,
+): Promise<MicHandle> {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      channelCount: 1,
+    },
+  });
+  const ctx = new AudioContext({
+    sampleRate: 16000,
+    latencyHint: "interactive",
+  });
+  const url = URL.createObjectURL(
+    new Blob([WORKLET], { type: "application/javascript" }),
+  );
   try {
-    await ctx.audioWorklet.addModule(url)
+    await ctx.audioWorklet.addModule(url);
   } finally {
-    URL.revokeObjectURL(url)
+    URL.revokeObjectURL(url);
   }
-  const source = ctx.createMediaStreamSource(stream)
-  const tap = new AudioWorkletNode(ctx, 'pf-tap')
-  tap.port.onmessage = (e: MessageEvent<Float32Array>) => onFrame(e.data)
+  const source = ctx.createMediaStreamSource(stream);
+  const tap = new AudioWorkletNode(ctx, "pf-tap");
+  tap.port.onmessage = (e: MessageEvent<Float32Array>) => onFrame(e.data);
   // keep the worklet pulled by the graph without making any sound
-  const mute = ctx.createGain()
-  mute.gain.value = 0
-  source.connect(tap)
-  tap.connect(mute)
-  mute.connect(ctx.destination)
+  const mute = ctx.createGain();
+  mute.gain.value = 0;
+  source.connect(tap);
+  tap.connect(mute);
+  mute.connect(ctx.destination);
   return {
     sampleRate: ctx.sampleRate,
     stop() {
-      for (const t of stream.getTracks()) t.stop()
-      void ctx.close()
-    }
-  }
+      for (const t of stream.getTracks()) t.stop();
+      void ctx.close();
+    },
+  };
 }

@@ -12,15 +12,15 @@ mic ─▶ VAD ─▶ STT ─▶ router (System One) ─┬─▶ brain ──�
             barge-in (you talk over it) cancels everything in flight
 ```
 
-| stage | providers |
-| --- | --- |
-| mic + VAD | Silero VAD v6 (onnxruntime-node, model downloaded + sha256 pinned), energy (RMS) fallback |
-| STT | **Parakeet TDT v2 (default) or Redux in a local worker** (CPU / WASM default; opt-in WebGPU trial), Parakeet TDT v2 via `parakeet-api` (mlx, :8816), whisper.cpp `whisper-server`, any `/v1/audio/transcriptions`, sherpa-onnx in-process (optional) |
-| router | llama-server `/v1/systemone` decision models (Kev-0.8B etc): `reply_local` / `device_action` / `escalate` / `clarify` / `ignore` with probabilities + confidence threshold, optional end-of-turn and barge-in questions. plus LLM-as-router baseline over any chat endpoint (json_schema constrained), and "none" |
-| tool caller | OpenAI tool calling (LFM2-1.2B-Tool / FunctionGemma via `llama-server --jinja`). demo tools: `get_time`, allowlisted `open_app`, bounded `create_note`. Model-generated shell execution is refused. `open_app` and `create_note` wait for a click |
-| brain | transcript repeat (Local loop, no LLM), any OpenAI-compatible streaming chat endpoint |
-| escalation | Claude Code (`claude -p --output-format stream-json --verbose`), Codex (`codex exec --json`). tool events become short spoken progress lines |
-| TTS | **Phonon 31m in-process** (phonon-tts 0.4.0 WASM in a hidden cross-origin-isolated window, default), ptts-openai-server, ptts-ws-server, any `/v1/audio/speech`, macOS `say` |
+| stage       | providers                                                                                                                                                                                                                                                                                                         |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| mic + VAD   | Silero VAD v6 (onnxruntime-node, model downloaded + sha256 pinned), energy (RMS) fallback                                                                                                                                                                                                                         |
+| STT         | **Parakeet TDT v2 (default) or Redux in a local worker** (CPU / WASM default; opt-in WebGPU trial), Parakeet TDT v2 via `parakeet-api` (mlx, :8816), whisper.cpp `whisper-server`, any `/v1/audio/transcriptions`, sherpa-onnx in-process (optional)                                                              |
+| router      | llama-server `/v1/systemone` decision models (Kev-0.8B etc): `reply_local` / `device_action` / `escalate` / `clarify` / `ignore` with probabilities + confidence threshold, optional end-of-turn and barge-in questions. plus LLM-as-router baseline over any chat endpoint (json_schema constrained), and "none" |
+| tool caller | OpenAI tool calling (LFM2-1.2B-Tool / FunctionGemma via `llama-server --jinja`). demo tools: `get_time`, allowlisted `open_app`, bounded `create_note`. Model-generated shell execution is refused. `open_app` and `create_note` wait for a click                                                                 |
+| brain       | transcript repeat (Local loop, no LLM), any OpenAI-compatible streaming chat endpoint                                                                                                                                                                                                                             |
+| escalation  | Claude Code (`claude -p --output-format stream-json --verbose`), Codex (`codex exec --json`). tool events become short spoken progress lines                                                                                                                                                                      |
+| TTS         | **Phonon 31m in-process** (phonon-tts 0.4.0 WASM in a hidden cross-origin-isolated window, default), ptts-openai-server, ptts-ws-server, any `/v1/audio/speech`, macOS `say`                                                                                                                                      |
 
 everything else:
 
@@ -35,7 +35,7 @@ Phonon 40m is CC BY-NC, so it's never used or offered. Phonon 31m and the voices
 
 ## no-sidecar local speech loop
 
-Needs Bun and an Apple-silicon Mac; no Python or Homebrew inference servers.
+Needs Bun **1.4.4 or newer** and an Apple-silicon Mac; no Python or Homebrew inference servers.
 
 ```fish
 git clone --branch feat/initial-app https://github.com/PylotLight/Parrotfish.git
@@ -143,6 +143,8 @@ checked against each project's README (Oct 2026), not run on a Mac by me:
 bun run dev          # electron-vite dev
 bun test             # mock-provider tests
 bun run typecheck    # bun check
+bun run format       # format supported files with bun fmt
+bun run format:check # verify formatting without writing
 bun run lint         # oxlint
 bun run build && bun run check:css
 bun run dist:mac     # arm64 zip + dmg (unsigned)

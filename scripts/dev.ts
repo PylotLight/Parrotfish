@@ -8,95 +8,100 @@
 // pending stdin bytes before returning the terminal to the shell.
 //
 // Run with: bun scripts/dev.ts [-- ...electron-vite args]
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
-import { existsSync, statSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { existsSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const bin =
-  process.platform === 'win32'
-    ? join(root, 'node_modules', '.bin', 'electron-vite.cmd')
-    : join(root, 'node_modules', '.bin', 'electron-vite')
+  process.platform === "win32"
+    ? join(root, "node_modules", ".bin", "electron-vite.cmd")
+    : join(root, "node_modules", ".bin", "electron-vite");
 
 // Pulled new dependencies? Install them before Vite trips over a missing import.
-const lock = join(root, 'bun.lock')
-const stamp = join(root, 'node_modules', '.bun-tag')
-const mtime = (p: string): number => (existsSync(p) ? statSync(p).mtimeMs : 0)
-if (!existsSync(join(root, 'node_modules')) || mtime(lock) > Math.max(mtime(stamp), mtime(join(root, 'node_modules')))) {
-  console.log('[dev] dependencies changed — running bun install')
-  const r = spawnSync(process.execPath, ['install'], { cwd: root, stdio: 'inherit' })
-  if (r.status !== 0) process.exit(r.status ?? 1)
-  spawnSync('touch', [join(root, 'node_modules')])
+const lock = join(root, "bun.lock");
+const stamp = join(root, "node_modules", ".bun-tag");
+const mtime = (p: string): number => (existsSync(p) ? statSync(p).mtimeMs : 0);
+if (
+  !existsSync(join(root, "node_modules")) ||
+  mtime(lock) > Math.max(mtime(stamp), mtime(join(root, "node_modules")))
+) {
+  console.log("[dev] dependencies changed — running bun install");
+  const r = spawnSync(process.execPath, ["install"], {
+    cwd: root,
+    stdio: "inherit",
+  });
+  if (r.status !== 0) process.exit(r.status ?? 1);
+  spawnSync("touch", [join(root, "node_modules")]);
 }
 
-
-const child: ChildProcess = spawn(bin, ['dev', ...process.argv.slice(2)], {
-  stdio: 'inherit',
+const child: ChildProcess = spawn(bin, ["dev", ...process.argv.slice(2)], {
+  stdio: "inherit",
   env: process.env,
-  shell: process.platform === 'win32'
-})
+  shell: process.platform === "win32",
+});
 
-child.on('error', (err) => {
-  console.error(`[dev] failed to start electron-vite: ${err.message}`)
-  process.exit(1)
-})
+child.on("error", (err) => {
+  console.error(`[dev] failed to start electron-vite: ${err.message}`);
+  process.exit(1);
+});
 
-let shuttingDown = false
+let shuttingDown = false;
 function forward(signal: NodeJS.Signals): void {
-  if (shuttingDown) return
-  shuttingDown = true
+  if (shuttingDown) return;
+  shuttingDown = true;
   // The child likely received the signal from the terminal too; kill() is a no-op then.
   try {
-    child.kill(signal)
+    child.kill(signal);
   } catch {
     // ignore — child already gone
   }
 }
-process.on('SIGINT', () => forward('SIGINT'))
-process.on('SIGTERM', () => forward('SIGTERM'))
+process.on("SIGINT", () => forward("SIGINT"));
+process.on("SIGTERM", () => forward("SIGTERM"));
 
 /** Discard leftover terminal-reply bytes queued in stdin. No-op without a TTY. */
 async function drainStdin(): Promise<void> {
-  const { stdin } = process
-  if (!stdin.isTTY) return
+  const { stdin } = process;
+  if (!stdin.isTTY) return;
   await new Promise<void>((resolve) => {
-    let done = false
-    let timer: ReturnType<typeof setTimeout>
+    let done = false;
+    let timer: ReturnType<typeof setTimeout>;
     const finish = (): void => {
-      if (done) return
-      done = true
-      clearTimeout(timer)
-      stdin.removeListener('data', swallow)
-      stdin.pause()
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      stdin.removeListener("data", swallow);
+      stdin.pause();
       try {
-        stdin.setRawMode(false)
+        stdin.setRawMode(false);
       } catch {
         // ignore — already restored
       }
-      resolve()
-    }
+      resolve();
+    };
     const swallow = (): void => {
       // More bytes arrived — give stragglers a short grace window, then stop.
-      clearTimeout(timer)
-      timer = setTimeout(finish, 80)
-    }
-    timer = setTimeout(finish, 250)
+      clearTimeout(timer);
+      timer = setTimeout(finish, 80);
+    };
+    timer = setTimeout(finish, 250);
     try {
       // Raw mode so escape bytes can't trigger signals while we discard them.
-      stdin.setRawMode(true)
+      stdin.setRawMode(true);
     } catch {
       // ignore — drain in cooked mode instead
     }
-    stdin.resume()
-    stdin.on('data', swallow)
-  })
+    stdin.resume();
+    stdin.on("data", swallow);
+  });
 }
 
-child.on('exit', (code) => {
+child.on("exit", (code) => {
   void drainStdin().then(() => {
     // Leave the cursor visible and attributes reset for the next prompt.
-    process.stdout.write('\x1b[?25h\x1b[0m')
-    process.exit(code ?? 0)
-  })
-})
+    process.stdout.write("\x1b[?25h\x1b[0m");
+    process.exit(code ?? 0);
+  });
+});

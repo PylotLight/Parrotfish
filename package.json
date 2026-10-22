@@ -14,6 +14,8 @@
     "preview": "electron-vite preview",
     "clean": "rm -rf out",
     "typecheck": "bun check",
+    "format": "bun fmt",
+    "format:check": "bun fmt --check",
     "lint": "oxlint src scripts test",
     "check:css": "bun scripts/ci/check-css.ts",
     "dist": "electron-builder",
@@ -47,8 +49,18 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "target": [
-        { "target": "zip", "arch": ["arm64"] },
-        { "target": "dmg", "arch": ["arm64"] }
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
       ],
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Parrotfish listens to your voice to test the voice agent pipeline. Audio stays on this Mac unless a stage you configured sends it elsewhere."
